@@ -5,7 +5,7 @@
 
 Record something I like! 
 
-**My Blog Url: [http://willalpha.github.io/](http://willalpha.github.io/)**. 
+**My Blog Url: [http://willalpha.github.io/](http://willalpha.github.io/)**
 
 ## Content
 
