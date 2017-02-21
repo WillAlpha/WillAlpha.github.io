@@ -10,12 +10,11 @@ type: page
 {:toc}
 
 ## Tools
-[ARM MDK 5](http://www2.keil.com/mdk5/)
+* [ARM MDK 5](http://www2.keil.com/mdk5/)
 
 ## Resources
-
-[STM32官方资料](http://www.stmcu.com.cn/)
-
+* [STM32中文官方网址](http://www.stmcu.com.cn/)
+* [GPS/经纬度/基站/身份证/行政区等查询网址](http://www.gpsspg.com/)
 
 ## Comments
 
