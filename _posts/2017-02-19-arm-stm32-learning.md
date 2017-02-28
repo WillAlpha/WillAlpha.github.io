@@ -35,60 +35,60 @@ STM32F4系列的官方标准固件库可以从STM32中文官网下载[v1.8.0](ht
 
 ```
 _htmresc       
-Libraries\      \\库文件，创建工程时用到          
-	|-CMSIS       \\ARM控制器软件接口标准文件     
-	|-STM32F4xx_StdPeriph_Driver  \\标准外设驱动，基于CMSIS
+Libraries\  \\库文件，创建工程时用到          
+ |-CMSIS    \\ARM控制器软件接口标准文件     
+ |-STM32F4xx_StdPeriph_Driver  \\标准外设驱动，基于CMSIS
 Projects\
-	|-STM32F4xx_StdPeriph_Examples  \\标准固件例程
-	|-STM32F4xx_StdPeriph_Templates \\创建项目工程模板
-Utilities\      \\例程中用到的一些工具资源
-	|-Media
-	|-ST
-	|-STM32_EVAL
-	|-Third_Party
+ |-STM32F4xx_StdPeriph_Examples  \\标准固件例程
+ |-STM32F4xx_StdPeriph_Templates  \\创建项目工程模板
+Utilities\  \\例程中用到的一些工具资源
+ |-Media
+ |-ST
+ |-STM32_EVAL
+ |-Third_Party
 MCD-ST***.pdf
 Release_Notes.html
-stm32fxx_dsp_stdperiph_lib_um.chm     //整个开发包说明文档
+stm32fxx_dsp_stdperiph_lib_um.chm  //整个开发包说明文档
 ```
 
 由于我们使用的工具是MDK，可以进入`Projects\STM32F4xx_StdPeriph_Templates\`
 
 ```
 Projects\STM32F4xx_StdPeriph_Templates\
-	|-EWARM\          \\IAR工程
-	|-MDK-ARM\        \\MDK工程
-	|-SW4STM32\       \\SW4STM32工程
-	|-TrueSTUDIO\     \\TrueSTUDIO工程
-	|-main.c          
-	|-main.h
-	|-stm32f4xx_config.h
-	|-stm32f4xx_it.c
-	|-stm32f4xx_it.h
-	|-system_stm32f4xx.c
-	|-Release_Notes.html
-	|-readme.txt      \\关键信息！！！
+ |-EWARM\   \\IAR工程
+ |-MDK-ARM\  \\MDK工程
+ |-SW4STM32\  \\SW4STM32工程
+ |-TrueSTUDIO\  \\TrueSTUDIO工程
+ |-main.c          
+ |-main.h
+ |-stm32f4xx_config.h
+ |-stm32f4xx_it.c
+ |-stm32f4xx_it.h
+ |-system_stm32f4xx.c
+ |-Release_Notes.html
+ |-readme.txt  \\关键信息！！！
 ```
 
 首先阅读`readme.txt`，里面都已经写得很详细了，先看`“How to use it ?”`，直接看MDK-ARM那段，是对如何使用MDK工程的说明，其他工具用到后再看：
 
 ```
 + MDK-ARM
-	- Open the Template.uvprojx project
-	- Rebuild all files: Project->Rebuild all target files
-	- Load project image: Debug->Start/Stop Debug Session
-	- Run program: Debug->Run (F5)
+ -Open the Template.uvprojx project
+ -Rebuild all files: Project->Rebuild all target files
+ -Load project image: Debug->Start/Stop Debug Session
+ -Run program: Debug->Run (F5)
 ```
 
 而Templates目录下的`*.h`和`*.c`文件即为标准固件包里的例程，即`Projects\STM32F4xx_StdPeriph_Examples\`下面关于各个模块的标准例程，将其copy到此Templates目录下，再使用相应的工程来编译加载调试运行。具体可以参看每个例程的`readme.txt`文件，都有如何使用此例程的详细说明。以`Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\`为例：
 
 ```
 Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\
-	|-main.c          
-	|-main.h
-	|-stm32f4xx_config.h
-	|-stm32f4xx_it.c
-	|-stm32f4xx_it.h
-	|-system_stm32f4xx.c
+ |-main.c          
+ |-main.h
+ |-stm32f4xx_config.h
+ |-stm32f4xx_it.c
+ |-stm32f4xx_it.h
+ |-system_stm32f4xx.c
 ```
 
 阅读`readme.txt`文件：
@@ -96,28 +96,28 @@ Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\
 ```
 Example Description  \\关于此例程的总体说明
 ...
-Directory contents   \\目录文件说明
-	-system_stm32f4xx.c   STM32F4xx system clock configuration file
-	-stm32f4xx_conf.h     Library Configuration file
-	-stm32f4xx_it.c       Interrupt handlers
-	-stm32f4xx_it.h       Interrupt handlers header file
-	-main.c               Main program
-	-main.h               Main program header file
+Directory contents  \\目录文件说明
+ -system_stm32f4xx.c   STM32F4xx system clock configuration file
+ -stm32f4xx_conf.h     Library Configuration file
+ -stm32f4xx_it.c       Interrupt handlers
+ -stm32f4xx_it.h       Interrupt handlers header file
+ -main.c               Main program
+ -main.h               Main program header file
 How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外的Utilities中的文件也要被用到
-	In order to make the program work, you must do the following:
-	-Copy all source files from this example folder to the template folder under Project\STM32F4xx_StdPeriph_Templates
-	-Open your preferred toolchain
-	-Select the project workspace related to the used device
-		-If "STM32F40_41xxx" is selected as default project Add the following files in the project source list:
-		-Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval.c
-		-Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_lcd.c
-		-Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_fsmc_sram.c
-		-Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_ioe.c
-	-Rebuild all files and load your image into target memory
-	-Run the example
+ In order to make the program work, you must do the following:
+ -Copy all source files from this example folder to the template folder under Project\STM32F4xx_StdPeriph_Templates
+ -Open your preferred toolchain
+ -Select the project workspace related to the used device
+  -If "STM32F40_41xxx" is selected as default project Add the following files in the project source list:
+  -Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval.c
+  -Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_lcd.c
+  -Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_fsmc_sram.c
+  -Utilities\STM32_EVAL\STM3240_41_G_EVAL\stm324xg_eval_ioe.c
+ -Rebuild all files and load your image into target memory
+ -Run the example
 ```
 
 `readme.txt`文件已经非常详细的说明了例程结合模板工程如何使用了，其他例程就都会用了，下面我们按照工程模板中的`readme.txt`说明，打开MDK工程并编译运行加载默认的例程。
 
-双击`Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx`:
+双击MDK工程文件 `Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx`:
 ![打开工程图片](images/mdk_default_example_prj.jpg)
