@@ -35,8 +35,8 @@ STM32F4系列的官方标准固件库可以从STM32中文官网下载[v1.8.0](ht
 
 ```
 _htmresc       
-Libraries\  \\库文件，创建工程时用到          
- |-CMSIS    \\ARM控制器软件接口标准文件     
+Libraries\  \\库文件，创建工程时用到
+ |-CMSIS    \\ARM控制器软件接口标准文件
  |-STM32F4xx_StdPeriph_Driver  \\标准外设驱动，基于CMSIS
 Projects\
  |-STM32F4xx_StdPeriph_Examples  \\标准固件例程
@@ -59,7 +59,7 @@ Projects\STM32F4xx_StdPeriph_Templates\
  |-MDK-ARM\  \\MDK工程
  |-SW4STM32\  \\SW4STM32工程
  |-TrueSTUDIO\  \\TrueSTUDIO工程
- |-main.c          
+ |-main.c
  |-main.h
  |-stm32f4xx_config.h
  |-stm32f4xx_it.c
@@ -83,7 +83,7 @@ Projects\STM32F4xx_StdPeriph_Templates\
 
 ```
 Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\
- |-main.c          
+ |-main.c
  |-main.h
  |-stm32f4xx_config.h
  |-stm32f4xx_it.c
@@ -121,3 +121,25 @@ How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外
 
 双击MDK工程文件 `Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx`:
 ![打开工程图片](images/mdk_default_example_prj.jpg)
+
+从左侧`Project`栏里的目录结构看，`CMSIS`和`MDK-ARM`目录下的`system_stm32f4xx.c`和`startup_stm32f412xg.s`都是标准固件库`STM32F4xx_DSP_StdPeriph_Lib_V1.8.0`提供的，位于标准`Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates`目录下，是复合ARM [CMSIS](http://baike.baidu.com/item/CMSIS?sefr=enterbtn)软件接口标准的，`startup_stm32f412xg.s`是ARM MDK环境下的启动文件，汇编语言编写，摘录一段：
+
+```
+Reset_Handler    PROC
+		EXPORT  Reset_Handler             [WEAK]
+	IMPORT  SystemInit
+	IMPORT  __main
+
+	LDR     R0, =SystemInit
+	BLX     R0
+	LDR     R0, =__main
+	BX      R0
+	ENDP
+```
+
+先执行`SystemInit`函数，`SystemInit`函数实现就在`system_stm32f4xx.c`里，初始化系统时钟/PLL/Flash接口等，然后再跳转到`main`函数。
+
+`SystemInit`函数名的定义也是符合CMSIS软件接口标准的，另外在标准固件库里面`Libraries\CMSIS\Device\ST\STM32F4xx\Include\`还有2个头文件`stm32f4xx.h`和`system_stm32f4xx.h`，其中`stm32f4xx.h`是寄存器相关的定义，而`system_stm32f4xx.h`则是`SystemInit`函数的头文件。至此，符合CMSIS的两个`*.c`和两个`*.h`文件基本就清楚了，在任何一个工程里都少不了这几个文件，而且ARM提出了CMSIS标准，避免了各种基于ARM内核的CPU在软件定义时的混乱，最终目的还是减少嵌入式软件总是耗费精力在平台迁移带来的修改。
+
+图中的`Project`目录栏里面的`Doc`目录很好理解，就是每个例程的`readme.txt`文件，`User`目录里面就是例程里面的源文件了，而`STM32F4xx_StdPeriph_Driver`则是标准固件库里提供的`STM32F4xx_DSP_StdPeriph_Lib_V1.8.0\Libraries\STM32F4xx_StdPeriph_Driver\`
+
