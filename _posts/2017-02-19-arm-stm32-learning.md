@@ -125,16 +125,16 @@ How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外
 从左侧`Project`栏里的目录结构看，`CMSIS`和`MDK-ARM`目录下的system_stm32f4xx.c和startup_stm32f412xg.s都是标准固件库STM32F4xx_DSP_StdPeriph_Lib_V1.8.0提供的，位于标准Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates目录下，是符合ARM [CMSIS](http://baike.baidu.com/item/CMSIS?sefr=enterbtn)软件接口标准的，startup_stm32f412xg.s是ARM MDK环境下的启动文件，汇编语言编写，摘录一段：
 
 ```
-Reset_Handler    PROC
-       EXPORT  Reset_Handler    [WEAK]
-   IMPORT  SystemInit
-   IMPORT  __main
+Reset_Handler  PROC
+    EXPORT  Reset_Handler  [WEAK]
+  IMPORT  SystemInit
+  IMPORT  __main
 
-   LDR     R0, =SystemInit
-   BLX     R0
-   LDR     R0, =__main
-   BX      R0
-   ENDP
+    LDR     R0, =SystemInit
+    BLX     R0
+    LDR     R0, =__main
+    BX      R0
+    ENDP
 ```
 
 先执行`SystemInit`函数，`SystemInit`函数实现就在system_stm32f4xx.c里，初始化系统时钟/PLL/Flash接口等，然后再跳转到`main`函数。
