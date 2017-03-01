@@ -51,7 +51,7 @@ Release_Notes.html
 stm32fxx_dsp_stdperiph_lib_um.chm  //整个开发包说明文档
 ```
 
-由于我们使用的工具是MDK，可以进入`Projects\STM32F4xx_StdPeriph_Templates\`
+由于我们使用的工具是MDK，可以进入Projects\STM32F4xx_StdPeriph_Templates\
 
 ```
 Projects\STM32F4xx_StdPeriph_Templates\
@@ -79,7 +79,7 @@ Projects\STM32F4xx_StdPeriph_Templates\
  -Run program: Debug->Run (F5)
 ```
 
-而Templates目录下的`*.h`和`*.c`文件即为标准固件包里的例程，即`Projects\STM32F4xx_StdPeriph_Examples\`下面关于各个模块的标准例程，将其copy到此Templates目录下，再使用相应的工程来编译加载调试运行。具体可以参看每个例程的`readme.txt`文件，都有如何使用此例程的详细说明。以`Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\`为例：
+而Templates目录下的`*.h`和`*.c`文件即为标准固件包里的例程，即Projects\STM32F4xx_StdPeriph_Examples\下面关于各个模块的标准例程，将其copy到此Templates目录下，再使用相应的工程来编译加载调试运行。具体可以参看每个例程的`readme.txt`文件，都有如何使用此例程的详细说明。以Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\为例：
 
 ```
 Projects\STM32F4xx_StdPeriph_Examples\ADC\ADC_DMA\
@@ -119,27 +119,27 @@ How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外
 
 `readme.txt`文件已经非常详细的说明了例程结合模板工程如何使用了，其他例程就都会用了，下面我们按照工程模板中的`readme.txt`说明，打开MDK工程并编译运行加载默认的例程。
 
-双击MDK工程文件 `Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx`:
+双击MDK工程文件 Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx:
 ![打开工程图片](images/mdk_default_example_prj.jpg)
 
-从左侧`Project`栏里的目录结构看，`CMSIS`和`MDK-ARM`目录下的`system_stm32f4xx.c`和`startup_stm32f412xg.s`都是标准固件库`STM32F4xx_DSP_StdPeriph_Lib_V1.8.0`提供的，位于标准`Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates`目录下，是复合ARM [CMSIS](http://baike.baidu.com/item/CMSIS?sefr=enterbtn)软件接口标准的，`startup_stm32f412xg.s`是ARM MDK环境下的启动文件，汇编语言编写，摘录一段：
+从左侧`Project`栏里的目录结构看，`CMSIS`和`MDK-ARM`目录下的system_stm32f4xx.c和startup_stm32f412xg.s都是标准固件库STM32F4xx_DSP_StdPeriph_Lib_V1.8.0提供的，位于标准Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates目录下，是符合ARM [CMSIS](http://baike.baidu.com/item/CMSIS?sefr=enterbtn)软件接口标准的，startup_stm32f412xg.s是ARM MDK环境下的启动文件，汇编语言编写，摘录一段：
 
 ```
 Reset_Handler    PROC
-		EXPORT  Reset_Handler             [WEAK]
-	IMPORT  SystemInit
-	IMPORT  __main
+  EXPORT  Reset_Handler	[WEAK]
+ IMPORT  SystemInit
+ IMPORT  __main
 
-	LDR     R0, =SystemInit
-	BLX     R0
-	LDR     R0, =__main
-	BX      R0
-	ENDP
+ LDR     R0, =SystemInit
+ BLX     R0
+ LDR     R0, =__main
+ BX      R0
+ ENDP
 ```
 
-先执行`SystemInit`函数，`SystemInit`函数实现就在`system_stm32f4xx.c`里，初始化系统时钟/PLL/Flash接口等，然后再跳转到`main`函数。
+先执行`SystemInit`函数，`SystemInit`函数实现就在system_stm32f4xx.c里，初始化系统时钟/PLL/Flash接口等，然后再跳转到`main`函数。
 
-`SystemInit`函数名的定义也是符合CMSIS软件接口标准的，另外在标准固件库里面`Libraries\CMSIS\Device\ST\STM32F4xx\Include\`还有2个头文件`stm32f4xx.h`和`system_stm32f4xx.h`，其中`stm32f4xx.h`是寄存器相关的定义，而`system_stm32f4xx.h`则是`SystemInit`函数的头文件。至此，符合CMSIS的两个`*.c`和两个`*.h`文件基本就清楚了，在任何一个工程里都少不了这几个文件，而且ARM提出了CMSIS标准，避免了各种基于ARM内核的CPU在软件定义时的混乱，最终目的还是减少嵌入式软件总是耗费精力在平台迁移带来的修改。
+`SystemInit`函数名的定义也是符合CMSIS软件接口标准的，另外在标准固件库里面Libraries\CMSIS\Device\ST\STM32F4xx\Include\还有2个头文件stm32f4xx.h和system_stm32f4xx.h，其中stm32f4xx.h是寄存器相关的定义，而system_stm32f4xx.h则是`SystemInit`函数的头文件。至此，符合CMSIS的两个`*.c`和两个`*.h`文件基本就清楚了，在任何一个工程里都少不了这几个文件，而且ARM提出了CMSIS标准，避免了各种基于ARM内核的CPU在软件定义时的混乱，最终目的还是减少嵌入式软件总是耗费精力在平台迁移带来的修改。
 
-图中的`Project`目录栏里面的`Doc`目录很好理解，就是每个例程的`readme.txt`文件，`User`目录里面就是例程里面的源文件了，而`STM32F4xx_StdPeriph_Driver`则是标准固件库里提供的`STM32F4xx_DSP_StdPeriph_Lib_V1.8.0\Libraries\STM32F4xx_StdPeriph_Driver\`
+图中的`Project`目录栏里面的`Doc`目录很好理解，就是每个例程的`readme.txt`文件，`User`目录里面就是例程里面的源文件了，而`Project`目录栏里面的STM32F4xx_StdPeriph_Driver目录则是标准固件库里提供的STM32F4xx_DSP_StdPeriph_Lib_V1.8.0\Libraries\STM32F4xx_StdPeriph_Driver
 
