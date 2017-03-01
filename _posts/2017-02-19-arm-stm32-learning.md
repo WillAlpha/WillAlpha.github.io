@@ -126,15 +126,15 @@ How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外
 
 ```
 Reset_Handler    PROC
-  EXPORT  Reset_Handler	[WEAK]
- IMPORT  SystemInit
- IMPORT  __main
+       EXPORT  Reset_Handler    [WEAK]
+   IMPORT  SystemInit
+   IMPORT  __main
 
- LDR     R0, =SystemInit
- BLX     R0
- LDR     R0, =__main
- BX      R0
- ENDP
+   LDR     R0, =SystemInit
+   BLX     R0
+   LDR     R0, =__main
+   BX      R0
+   ENDP
 ```
 
 先执行`SystemInit`函数，`SystemInit`函数实现就在system_stm32f4xx.c里，初始化系统时钟/PLL/Flash接口等，然后再跳转到`main`函数。
