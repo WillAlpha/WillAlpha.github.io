@@ -143,3 +143,75 @@ Reset_Handler  PROC
 
 图中的`Project`目录栏里面的`Doc`目录很好理解，就是每个例程的`readme.txt`文件，`User`目录里面就是例程里面的源文件了，而`Project`目录栏里面的STM32F4xx_StdPeriph_Driver目录则是标准固件库里提供的STM32F4xx_DSP_StdPeriph_Lib_V1.8.0\Libraries\STM32F4xx_StdPeriph_Driver
 
+我们以流水灯为示例做一个简单的测试，此开发板的3个led灯是由GPIO的PIN0/PIN7/PIN14来控制的，因此使用Template里面的默认GPIO工程，main.c里main函数添加如下代码：
+
+```c
+/* GPIOB Peripheral clock enable */
+RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+/* Configure PIN0/7/14 (led) */
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14;
+GPIO_InitStructure.GPIO_Speed = GPIO_Low_Speed;
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  
+GPIO_Init(GPIOB, &GPIO_InitStructure);
+GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_RESET);
+
+
+/* Infinite loop */
+while (1)
+{
+  Delay(50);
+  GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_SET);
+  Delay(50);
+  GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_RESET);
+}
+```
+
+然后按照`readme.txt`文档里面的操作步骤，Rebuild all target files -> Start/Stop Debug Session -> Run 的过程，就可以看到3个不同颜色的led灯不停的闪烁了。需要注意在MDK的`Options for Target`里面`Debug`配置页配置调试器为`ST-Link Debugger`
+
+至此，使用标准固件库的基本方法就比较清晰了，如果要学习stm32的某个模块，可以用这样的方式学习标准固件库里提供的Example了，这种方式非常贴近底层，对深入学习非常有帮助。
+
+## CubeMx
+
+CubeMx软件是针对ST系列的MCU提供的图形化配置软件，其目的在于让开发工程师最大可能的减少在MCU底层软件的配置修改上，将精力集中于自己的业务上，从ST官方提供的资料看来，这也是其主推的一种方式。如果使用ST系列的MCU，这确实是一种比较好的使用方式，如果在一家芯片公司，使用的是ARM核的自家MCU，这种方式就无法使用了。
+
+下载安装[STM32CubeMx v4.19.0](http://www.stmcu.com.cn/Designresource/design_resource_detail/file/46359/lang/EN/token/bcc6af35fbfa52707727fcd3ea7c203f)，还是以上面的标准固件库点亮3个led灯为示例，这次使用CubeMx软件生成MDK工程。
+
+STM32CubeMx可参考官方使用说明[文档](http://www.stmcu.com.cn/Designresource/design_resource_detail/file/47493/lang/EN/token/36fac307b9a8f5fb43c1b1b0fbb0f997)，需要首先安装Java 1.7版本及以上，然后安装STM32CubeMx，安装完成后就可以打开使用了。首先安装相应的固件包，软件界面`Help` -> `Install New Libraries`，进入到下面的界面，选择STM32CubeF4 Releases，在这栏里面选择最新的版本安装，此固件包对应开发板STM32F4xx系列，后面通过STM32CubeMx定制工程软件时就会用到此固件包。
+![安装stm32cubemxf4固件包](images/stm32cubemx_libraries_f4.jpg)
+
+安装完成后，在STM32CubeMx主界面，点击`New Project`新建工程，看到下图所示，选择自己的开发板：
+![stm32cubemx新建工程选择开发板](images/stm32cubemx_select_board.jpg)
+
+选好开发板后，就可以看到图形配置页面了：
+![stm32cubemx工程配置页面](images/stm32cubemx_project_config.jpg)
+
+由于看原理图知道控制LED的3个GPIO管脚是PB0/PB7/PB14，因此可以直接在`Pinout`页面的芯片的图片的这3个管脚上直接选择成`GPIO_Output`，如下图所示：
+![stm32cubemx的控制LED的GPIO配置](images/stm32cubemx_gpio_config.jpg)
+
+依次`Clock Configuration` `Configuration` `Power Consumption Calculator` 暂时维持原配置不变，点击`Generate source code based on user settings`按钮，生成ARM MDK V5的工程：
+![stm32cubemx生成code配置](images/stm32cubemx_gen_code_config.jpg)
+
+打开生成的工程，如下图：
+![打开stm32cubemx生成的led闪烁工程](images/stm32cubemx_gen_mdk_prj.jpg)
+
+左侧工程栏与上面标准固件包工程非常相似，只是有些替换成了HAL层的文件名，HAL层是ST抽象出来的一层软件，为了配合CubeMx软件灵活的配置生成工程等；main.c中的main函数可以看到初始化函数都写好了，而且注释可以看出添加用户代码的地方，在while(1)循环里添加循环点亮LED的代码：
+
+```c
+/* Infinite loop */
+/* USER CODE BEGIN WHILE */
+while (1)
+{
+/* USER CODE END WHILE */
+
+/* USER CODE BEGIN 3 */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_7, GPIO_PIN_SET);
+  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_Delay(100);
+}
+/* USER CODE END 3 */
+```
+
+与前面标准固件库示例类似，通过ARM MDK 5编译软件并下载到开发板，就可以看到3个LED等不停的闪烁。
