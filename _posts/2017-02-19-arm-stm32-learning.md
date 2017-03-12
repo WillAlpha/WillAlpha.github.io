@@ -196,7 +196,7 @@ STM32CubeMx可参考官方使用说明[文档](http://www.stmcu.com.cn/Designres
 打开生成的工程，如下图：
 ![打开stm32cubemx生成的led闪烁工程](images/stm32cubemx_gen_mdk_prj.jpg)
 
-左侧工程栏与上面标准固件包工程非常相似，只是有些替换成了HAL层的文件名，HAL层是ST抽象出来的一层软件，为了配合CubeMx软件灵活的配置生成工程等；main.c中的main函数可以看到初始化函数都写好了，而且注释可以看出添加用户代码的地方，在while(1)循环里添加循环点亮LED的代码：
+左侧工程栏与上面标准固件包工程非常相似，只是有些替换成了HAL层的文件名，HAL层是ST抽象出来的一层软件，确保在STM32各个产品之间实现最大限度的可移植性；main.c中的main函数可以看到初始化函数都写好了，而且注释可以看出添加用户代码的地方，在while(1)循环里添加循环点亮LED的代码：
 
 ```c
 /* Infinite loop */
@@ -215,3 +215,89 @@ while (1)
 ```
 
 与前面标准固件库示例类似，通过ARM MDK 5编译软件并下载到开发板，就可以看到3个LED等不停的闪烁。
+
+
+## RTOS
+
+前面全部是直接在STM32上的firmware开发，现在复杂一些的应用全部是是要基于RTOS开发，而STM32CubeMx则选择FreeRTOS，并将FreeRTOS与USB/TCP/IP/图形等视为中间件，通过STM32CubeMx的图形化配置，可以选择支持哪个中间件，勾选后生成的工程中就自动包含了。
+![配置rtos中间件](images/stm32cubemx_select_rtos.jpg)
+
+然后再点击生成MDK工程，生成工程时有个warning，提示rtos的Timebase Source不要使用systick，在`Pinout`页面的`SYS`项配置里将Timebase Source选择为任意其他的`TIM`，这样warning就不存在了。主要原因是systick被用作了他用，因此产生了冲突。打开生成的工程，可以看到源码目录增加了一个Middlewares/FreeRTOS，全部是移植好的FreeRTOS源码，通过main.c里的main函数可以看到，多了FreeRTOS的初始化代码，而且这些RTOS源码是符合ARM的CMSIS-RTOS标准的，便于其他中间件和应用的移植。
+![打开添加了FreeRTOS的MDK工程](images/stm32cubemx_rtos_project.jpg)
+
+接下来还是以点亮LED为例，这次增加RTOS API的使用。创建2个task和1个MessageQueue，一个task接收消息，根据消息的value改变控制LED亮或者灭，另一个task周期性的发送消息改变LED状态。
+
+在main.c里添加相应的代码，先把STM32CubeMx自动生成的代码里的创建defaultTask的示例代码去掉：
+
+```c
+/* USER CODE BEGIN PV */
+/* Private variables ---------------------------------------------------------*/
+osThreadId ledFlashRxTaskHandle;
+osThreadId ledFlashTxTaskHandle;
+
+osMessageQId ledFlashMsgQ;
+/* USER CODE END PV */
+
+...
+
+int main(void)
+{
+  ...
+
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  //osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  //defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  osThreadDef(ledFlashRxTask, StartLedFlashRxTask, osPriorityNormal, 0, 128);
+  ledFlashRxTaskHandle = osThreadCreate(osThread(ledFlashRxTask), NULL);
+
+  osThreadDef(ledFlashTxTask, StartLedFlashTxTask, osPriorityNormal, 0, 128);
+  ledFlashTxTaskHandle = osThreadCreate(osThread(ledFlashTxTask), NULL);
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  osMessageQDef(ledFlashMsgQ, 100, uint32_t);
+  ledFlashMsgQ = osMessageCreate(osMessageQ(ledFlashMsgQ), NULL);
+  /* USER CODE END RTOS_QUEUES */
+
+  ...
+
+  while(1);
+}
+
+...
+
+/* StartLedFlashRxTask function */
+void StartLedFlashRxTask(void const * argument)
+{
+  osEvent evt;
+
+  for(;;)
+  {
+    evt = osMessageGet(ledFlashMsgQ, osWaitForever);
+    if (evt.status == osEventMessage)
+    {
+      if (evt.value.v == 0)
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_7, GPIO_PIN_RESET);
+      else
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_7, GPIO_PIN_SET);
+    }
+  }
+}
+
+/* StartLedFlashTxTask function */
+void StartLedFlashTxTask(void const * argument)
+{
+  for(;;)
+  {
+    osMessagePut(ledFlashMsgQ, 0, osWaitForever);
+    osDelay(500);
+    osMessagePut(ledFlashMsgQ, 1, osWaitForever);
+    osDelay(500);
+  }
+}
+```
