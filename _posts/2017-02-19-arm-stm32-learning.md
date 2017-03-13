@@ -301,3 +301,27 @@ void StartLedFlashTxTask(void const * argument)
   }
 }
 ```
+
+如果使用自家定制的ARM内核MCU，就需要考虑移植RTOS到自家平台上了，再做一下将FreeRTOS移植到开发板。首先到[FreeRTOS官网](http://www.freertos.org/)上[下载](http://www.freertos.org/a00104.html)最新的FreeRTOS源码，参阅一下[quick start](http://www.freertos.org/FreeRTOS-quick-start-guide.html#page_top)。
+
+FreeRTOS的目录结构也非常的简单：
+
+```
+Demo/ //FreeRTOS移植到各种平台的Demo
+License/
+Source/
+ |-include/ //头文件
+ |-portable/ //移植需要的文件
+   |-Keil //分不同的编译器目录，MDK关注这个目录. port.c
+   |-...
+   |-MemMang //heap文件，一般选择heap_4.c
+ |-croutine.c //这些*.c文件就是FreeRTOS的内核文件
+ |-event_groups.c
+ |-list.c
+ |-queue.c
+ |-task.c
+ |-timers.c
+ |-readme.txt
+```
+
+用前面的标准固件库的工程，添加FreeRTOS
