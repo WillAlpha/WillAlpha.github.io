@@ -324,4 +324,115 @@ Source/
  |-readme.txt
 ```
 
-用前面的标准固件库的工程，添加FreeRTOS
+FreeRTOS的移植非常简洁，提供了各大主流平台相关的移植文件，而且区分主流的工具，因此移植到STM32F4xx上几乎不需要修改太多，只是选取相应的文件添加到工程里编译通过，就可以用起来了。
+
+使用前面标准固件库里的工程，添加一个目录Middlewares/FreeRTOS，将FreeRTOS源码里的Source目录里的文件添加到Middlewares/FreeRTOS/里面，如下图所示：
+
+```
+Source/
+ |-include/ //全部copy过去
+ |-portable/
+   |-MemMang/ //全部copy，heap_4.c用的最多
+     |-heap_4.c
+     |-...
+   |-RVDS/ARM_CM4F/  //全部copy，ARM MDK工程与其相同
+     |-port.c
+     |-portmacro.h
+ |-croutine.c //所有的内核文件全部copy
+ |-event_groups.c
+ |-list.c
+ |-queue.c
+ |-task.c
+ |-timers.c   
+```
+
+还需要借用STM32CubeMx生成的带FreeRTOS中间件工程里面的一个头文件FreeRTOSConfig.h，将其copy到工程里。
+
+需要修改的内容，FreeRTOSConfig.h里面需要确认打开几个宏：
+
+```c
+#define vPortSVCHandler    SVC_Handler
+#define xPortPendSVHandler PendSV_Handler
+#define xPortSysTickHandler SysTick_Handler
+```
+
+stm32f4xx_it.c里面需要注释掉上面宏定义的3个中断处理函数，采用FreeRTOS提供的相应的3个函数，FreeRTOS相关的3个函数在port.c里面，属于平台相关。
+
+```c
+//void SVC_Handler(void)
+//void PendSV_Handler(void)
+//void SysTick_Handler(void)
+```
+
+移植工作就完成了，如果是自家平台，需要找一个类似的移植平台修改，从上面的过程可以看出，重点关注FreeRTOS/Source/Portable/[compiler]/[architecture]相关的平台相关的移植文件，以及FreeRTOSConfig.h这个FreeRTOS配置相关的文件。其他就如标准固件库里示例里讲到了启动文件startup_stm32xx.s，中断处理文件stm32xx_it.c，时钟相关文件system_stm32xx.c等，都是平台相关的。
+
+再仿照上面STM32CubeMx生成的带FreeRTOS中间件工程，创建2个任务和1个队列，实现点亮LED的应用代码，main.c里面添加代码如下：
+
+```c
+xQueueHandle MsgQueue;
+
+void vledFlashTxTaskFunc(void *pvParameters)
+{
+  uint32_t zeroMsg = 0;
+  uint32_t oneMsg = 1;
+
+  for(;;)
+  {
+    vTaskDelay(500);
+    if (MsgQueue != 0)
+      xQueueSend(MsgQueue, (void *)&oneMsg, portMAX_DELAY);
+    vTaskDelay(500);
+    if (MsgQueue != 0)
+      xQueueSend(MsgQueue, (void *)&zeroMsg, portMAX_DELAY);
+  }
+}
+
+void vledFlashRxTaskFunc(void *pvParameters)
+{
+  uint32_t recvNum = 0;
+
+  for (;;)
+  {
+    if(xQueueReceive(MsgQueue, (void *)&recvNum, portMAX_DELAY) == pdPASS)  
+    {  
+      if (1 == recvNum)
+        GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_SET);
+      else
+        GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_RESET);
+    }
+  }
+}
+
+void ledFlashGpioInit(void)
+{
+  GPIO_InitTypeDef GPIO_InitStructure;
+
+  /* GPIOB Peripheral clock enable */
+  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+  /* Configure PIN0/7/14 (led) */
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Low_Speed;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;  
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+  GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_RESET);
+}
+
+int main(void)
+{
+  ledFlashGpioInit();
+  MsgQueue = xQueueCreate(10, sizeof(uint32_t));
+  xTaskCreate(vledFlashRxTaskFunc, "RxTask", configMINIMAL_STACK_SIZE, 0, 1, 0);
+  xTaskCreate(vledFlashTxTaskFunc, "TxTask", configMINIMAL_STACK_SIZE, 0, 1, 0);
+  vTaskStartScheduler();
+
+  while(1);
+}
+```
+
+注意如何在ARM MDK里面添加`.c`文件和添加相应的`.h`文件的Include Path，否则在`*.c`文件里添加`#include “*.h”`文件时就会报错找不到此头文件。
+
+## 小结
+
+嵌入式MCU厂商非常了解用户的痛点，不需要用户再付出过多的精力在平台相关的改动上，而是专注在自己的业务上。ST让开发者可以忽略掉ST系列MCU的差异，而且还提供了丰富的中间件支持，让业务的开发更加便捷。对CMSIS标准的支持，让开发者的应用也更加容易移植。FreeRTOS精简的内核加上各主流平台移植的支持，以及丰富的开源中间件支持，无愧为开源嵌入式实时操作系统的一哥。
