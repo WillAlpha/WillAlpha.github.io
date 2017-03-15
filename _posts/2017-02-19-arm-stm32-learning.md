@@ -120,7 +120,7 @@ How to use it ?  \\如何使用此例程，copy到模板目录中，还有额外
 `readme.txt`文件已经非常详细的说明了例程结合模板工程如何使用了，其他例程就都会用了，下面我们按照工程模板中的`readme.txt`说明，打开MDK工程并编译运行加载默认的例程。
 
 双击MDK工程文件 Projects\STM32F4xx_StdPeriph_Templates\MDK-ARM\Project.uvprojx:
-![打开工程图片](images/mdk_default_example_prj.jpg)
+![打开工程图片]({{ "/images/mdk_default_example_prj.jpg" | prepend:site.baseurl }})
 
 从左侧`Project`栏里的目录结构看，`CMSIS`和`MDK-ARM`目录下的system_stm32f4xx.c和startup_stm32f412xg.s都是标准固件库STM32F4xx_DSP_StdPeriph_Lib_V1.8.0提供的，位于标准Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates目录下，是符合ARM [CMSIS](http://baike.baidu.com/item/CMSIS?sefr=enterbtn)软件接口标准的，startup_stm32f412xg.s是ARM MDK环境下的启动文件，汇编语言编写，摘录一段：
 
