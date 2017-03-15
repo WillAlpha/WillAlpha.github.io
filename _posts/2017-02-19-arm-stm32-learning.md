@@ -179,22 +179,22 @@ CubeMx软件是针对ST系列的MCU提供的图形化配置软件，其目的在
 下载安装[STM32CubeMx v4.19.0](http://www.stmcu.com.cn/Designresource/design_resource_detail/file/46359/lang/EN/token/bcc6af35fbfa52707727fcd3ea7c203f)，还是以上面的标准固件库点亮3个led灯为示例，这次使用CubeMx软件生成MDK工程。
 
 STM32CubeMx可参考官方使用说明[文档](http://www.stmcu.com.cn/Designresource/design_resource_detail/file/47493/lang/EN/token/36fac307b9a8f5fb43c1b1b0fbb0f997)，需要首先安装Java 1.7版本及以上，然后安装STM32CubeMx，安装完成后就可以打开使用了。首先安装相应的固件包，软件界面`Help` -> `Install New Libraries`，进入到下面的界面，选择STM32CubeF4 Releases，在这栏里面选择最新的版本安装，此固件包对应开发板STM32F4xx系列，后面通过STM32CubeMx定制工程软件时就会用到此固件包。
-![安装stm32cubemxf4固件包](images/stm32cubemx_libraries_f4.jpg)
+![安装stm32cubemxf4固件包]({{ "/images/stm32cubemx_libraries_f4.jpg" | prepend:site.baseurl }})
 
 安装完成后，在STM32CubeMx主界面，点击`New Project`新建工程，看到下图所示，选择自己的开发板：
-![stm32cubemx新建工程选择开发板](images/stm32cubemx_select_board.jpg)
+![stm32cubemx新建工程选择开发板]({{ "/images/stm32cubemx_select_board.jpg" | prepend:site.baseurl }})
 
 选好开发板后，就可以看到图形配置页面了：
-![stm32cubemx工程配置页面](images/stm32cubemx_project_config.jpg)
+![stm32cubemx工程配置页面]({{ "/images/stm32cubemx_project_config.jpg" | prepend:site.baseurl }})
 
 由于看原理图知道控制LED的3个GPIO管脚是PB0/PB7/PB14，因此可以直接在`Pinout`页面的芯片的图片的这3个管脚上直接选择成`GPIO_Output`，如下图所示：
-![stm32cubemx的控制LED的GPIO配置](images/stm32cubemx_gpio_config.jpg)
+![stm32cubemx的控制LED的GPIO配置]({{ "/images/stm32cubemx_gpio_config.jpg" | prepend:site.baseurl }})
 
 依次`Clock Configuration` `Configuration` `Power Consumption Calculator` 暂时维持原配置不变，点击`Generate source code based on user settings`按钮，生成ARM MDK V5的工程：
-![stm32cubemx生成code配置](images/stm32cubemx_gen_code_config.jpg)
+![stm32cubemx生成code配置]({{ "/images/stm32cubemx_gen_code_config.jpg" | prepend:site.baseurl }})
 
 打开生成的工程，如下图：
-![打开stm32cubemx生成的led闪烁工程](images/stm32cubemx_gen_mdk_prj.jpg)
+![打开stm32cubemx生成的led闪烁工程]({{ "/images/stm32cubemx_gen_mdk_prj.jpg" | prepend:site.baseurl }})
 
 左侧工程栏与上面标准固件包工程非常相似，只是有些替换成了HAL层的文件名，HAL层是ST抽象出来的一层软件，确保在STM32各个产品之间实现最大限度的可移植性；main.c中的main函数可以看到初始化函数都写好了，而且注释可以看出添加用户代码的地方，在while(1)循环里添加循环点亮LED的代码：
 
@@ -220,10 +220,10 @@ while (1)
 ## RTOS
 
 前面全部是直接在STM32上的firmware开发，现在复杂一些的应用全部是是要基于RTOS开发，而STM32CubeMx则选择FreeRTOS，并将FreeRTOS与USB/TCP/IP/图形等视为中间件，通过STM32CubeMx的图形化配置，可以选择支持哪个中间件，勾选后生成的工程中就自动包含了。
-![配置rtos中间件](images/stm32cubemx_select_rtos.jpg)
+![配置rtos中间件]({{ "/images/stm32cubemx_select_rtos.jpg" | prepend:site.baseurl }})
 
 然后再点击生成MDK工程，生成工程时有个warning，提示rtos的Timebase Source不要使用systick，在`Pinout`页面的`SYS`项配置里将Timebase Source选择为任意其他的`TIM`，这样warning就不存在了。主要原因是systick被用作了他用，因此产生了冲突。打开生成的工程，可以看到源码目录增加了一个Middlewares/FreeRTOS，全部是移植好的FreeRTOS源码，通过main.c里的main函数可以看到，多了FreeRTOS的初始化代码，而且这些RTOS源码是符合ARM的CMSIS-RTOS标准的，便于其他中间件和应用的移植。
-![打开添加了FreeRTOS的MDK工程](images/stm32cubemx_rtos_project.jpg)
+![打开添加了FreeRTOS的MDK工程]({{ "/images/stm32cubemx_rtos_project.jpg" | prepend:site.baseurl }})
 
 接下来还是以点亮LED为例，这次增加RTOS API的使用。创建2个task和1个MessageQueue，一个task接收消息，根据消息的value改变控制LED亮或者灭，另一个task周期性的发送消息改变LED状态。
 
