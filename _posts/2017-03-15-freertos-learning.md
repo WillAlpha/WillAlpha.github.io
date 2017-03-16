@@ -54,3 +54,37 @@ void vApplicationIdleHook( void );
 ```
 
 或者单独定义一个最低优先级的任务也是可行的，FreeRTOS更推荐前一种做法。
+
+### Queues,Semaphores,Mutexes
+
+Queues用于tasks间的通讯，简单而灵活，发送到队列的消息是Copy进队列的，队列里做了缓存，这样tasks间的传递更加灵活，也可以传递指针，自定义消息数据结构和memory poll，对携带的消息格式和大小没有限制，一个队列可以接收各式消息，适用于MPU功能的场景，在发送消息时会提升MCU的权限，提升权限后就可以访问任意的存储区域，在中断处理函数中使用带`FromISR`结尾的API。
+
+Semaphores与Mutexes：
+* Semaphores分为Binary Semaphores和Counting Semaphores
+* Mutexes分为Mutexes和Recursive Mutexes
+* Semaphores用于任务间同步，tasks之间或者tasks与isr之间；Mutexes用于资源互斥，是保护某资源的token
+* Semaphores在某个task或isr中give，在另一个中take；Mutexes要在某个task内take & give，Binary Semaphores也可类似使用。
+* Mutexes具有优先级继承，当低优先级任务获得Mutexes运行时，自动将优先级升至与等待此Mutexes的最高优先级的任务一致，不能解决优先级反转问题，但是可以最大化的减少等待时间；Semaphores不具备此特性
+* Semaphores与Mutexes的Create API不同，但是take/give的API相同，Mutex不能用于中断服务程序，没有带`FromISR`结尾的API
+
+### Direct To Task Notifications
+
+Task Notifications相较于Semaphores/Mutexes/Event Groups在解除阻塞上有明显的性能优势，官方给出的结论：
+* 45% faster and uses less RAM 相较于Semaphores
+* significant performance benefits 相较于Event Groups
+
+通过宏定义configUSE_TASK_NOTIFICATIONS置为1打开Task Notifications功能。使用限制：
+* 只能1个task接收Task Notifications
+* 等待Task Notifications的task可以进入Blocked状态，但是发送Notifications的task不会因为无法立即发出Notifications而进入Blocked状态
+
+### Event Groups
+
+宏定义configUSE_16_BIT_TICKS设置为1，则Event Groups具有8bit，如果设置为0，则有24bit。可以同时设置1或多个bit位，清除1或多个bit位，task进入Blocked状态等待某1个或多个bit位置位；event groups可以用于tasks的同步。
+
+使用Event Groups的需要克服的条件：
+* 避免产生race conditions。设置、测试和清除event bit是atomic原子操作
+* 避免不确定性，event groups不知道有多少tasks因为event groups进入阻塞状态，也不知道event bit改变后有多少tasks会进入运行状态。因此在task里设置一个event bit时，FreeRTOS启动调度锁机制，确保中断使能状态；在isr内试图设置event bit时，启动中断延迟机制，推迟设置event bit的动作。
+
+### Example Code
+
+Example在FreeRTOS源码里的路径是：FreeRTOS/Demo/Common/Minimal
