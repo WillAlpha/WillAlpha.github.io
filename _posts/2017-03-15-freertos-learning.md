@@ -1,4 +1,3 @@
-
 ---
 layout: post
 title: "RTOS学习笔记-FreeRTOS"
@@ -25,7 +24,7 @@ Tasks的优先级设置为0~(configMAX_PRIORITIES - 1)，configMAX_PRIORITIES是
 
 configUSE_PORT_OPTIMISED_TASK_SELECTION宏定义针对某些处理器的特殊指令，如ARM Cortex-M的`CLZ`(Count Leading Zeros)前导零计数指令，这条指令可以得到被操作的32bit数从高位起0的个数，如被操作数的bit[31] = 1，则返回的结果是0，如果操作数为0，返回结果为32，详见指令：
 
-```asm
+```
 CLZ{<cond>} <Rd>，<Rm>
 
 指令伪代码：
@@ -39,7 +38,7 @@ FreeRTOS里计算当前处于任务Ready队列里的最高优先级的任务：
 
 ```c
 /* Find the highest priority queue that contains ready tasks. */
-#define portGET_HIGHEST_PRIORITY(uxTopPriority, uxReadyPriorities)  uxTopPriority=(31 - __clz((uxReadyPriorities)))
+#define portGET_HIGHEST_PRIORITY(uxTopPriority, uxReadyPriorities)  uxTopPriority=(31-__clz((uxReadyPriorities)))
 ```
 
 由此也可以理解为什么使用这个指令优先级必须小于32。当然，这条指令还可以用于math计算等。
