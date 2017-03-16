@@ -393,7 +393,7 @@ void vledFlashRxTaskFunc(void *pvParameters)
 
   for (;;)
   {
-    if(xQueueReceive(MsgQueue, (void *)&recvNum, portMAX_DELAY) == pdPASS)  
+    if(xQueueReceive(MsgQueue, (void *)&recvNum, portMAX_DELAY) == pdPASS)
     {  
       if (1 == recvNum)
         GPIO_WriteBit(GPIOB, GPIO_Pin_0 | GPIO_Pin_7 | GPIO_Pin_14, Bit_SET);
