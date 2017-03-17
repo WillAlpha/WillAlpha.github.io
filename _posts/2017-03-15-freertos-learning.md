@@ -88,3 +88,148 @@ Task Notifications相较于Semaphores/Mutexes/Event Groups在解除阻塞上有�
 ### Example Code
 
 Example在FreeRTOS源码里的路径是：FreeRTOS/Demo/Common/Minimal
+
+## Advanced
+
+### FreeRTOS宏定义
+
+FreeRTOS宏定义主要分布在3个头文件中：
+
+* FreeRTOSConfig.h  //user application相关的设置
+* FreeRTOS.h  //内核相关的设置，如果user没有定义的宏在这里给出默认值
+* portmacro.h  //移植平台相关的宏定义
+
+configUSE_PREEMPTION：设置为1，抢占式调度；0为协作式调度，即时间片轮转调度。一般都设置成1
+
+configUSE_PORT_OPTIMISED_TASK_SELECTION：见上面Tasks里面有分析
+
+configUSE_TICKLESS_IDLE：设置为1，低功耗tickless模式，即系统1ms节拍定时中断在低功耗时停止，唤醒校正后继续，这样做的主要考虑是节拍中断频率过高也带来过多的功耗；设置为0则节拍中断持续不关断。关于低功耗后面还有专门的学习
+
+configUSE_IDLE_HOOK：见上面Idle Task，设置为1启用idle task的hook函数，idle task的工作，设置为0不启用
+
+configUSE_MALLOC_FAILED_HOOK：分配内存失败，malloc返回NULL时，调用的hook函数，前提需要用户在移植FreeRTOS后，使用堆方案为FreeRTOS提供的heap_1~5.h中的任意一个方案。设置为1需调用，用户需要定义；设置为0不需要调用。函数原型：
+
+```c
+void vApplicationMallocFailedHook(void);
+```
+
+configUSE_DAEMON_TASK_STARTUP_HOOK：默认设置为0
+
+configUSE_TICK_HOOK:设置为1，在节拍中断的处理函数里面会执行这个hook函数，设置为0则不执行。一般没什么需要设置为0。函数原型：
+
+```c
+void vApplicationTickHook(void); 
+```
+
+configCPU_CLOCK_HZ:写入正确的系统时钟频率，后面相应的时钟节拍也要基于此计算
+
+configTICK_RATE_HZ：时钟节拍频率，即1秒钟多少拍，一般设置为1000
+
+configMAX_PRIORITIES：设置有效任务优先级的最大数，详见上面Tasks里有详细介绍
+
+configMINIMAL_STACK_SIZE：设置Idle Task的堆栈大小，一般以word为单位
+
+configMAX_TASK_NAME_LEN：创建Task时，描述Task名字字符串长度
+
+configUSE_TRACE_FACILITY：设置为1启动可视化跟踪调试，附加一些额外的数据结构和函数。STM32CubeMx工程里默认直接设置1
+
+configUSE_STATS_FORMATTING_FUNCTIONS：配合前面的configUSE_TRACE_FACILITY / configGENERATE_RUN_TIME_STATS设置为1，而其也设置为1，则会打开几个函数(详见源码，默认设置为0)：
+
+```c
+static char *prvWriteNameToBuffer(char *pcBuffer, const char *pcTaskName)
+void vTaskList(char * pcWriteBuffer)
+void vTaskGetRunTimeStats(char *pcWriteBuffer)
+```
+
+configUSE_16_BIT_TICKS：时钟节拍计数器变量类型，设置为1则portTickType为16bit，而设置为0则为32bit，STM32设置成32bit，时钟计数器的最大时钟计数更大。
+
+configIDLE_SHOULD_YIELD：详见Idle Task里的说明
+
+configUSE_TASK_NOTIFICATIONS：设置为1则包含使能Task Notifications，设置为0则不包含，是能后每个Task额外多使用8个Bytes的RAM。新特性，是FreeRTOS解除task阻塞状态最快的方式。设置为1
+
+configUSE_MUTEXES：设置为1包含使用Mutexes，设置为0则不包含使用
+
+configUSE_RECURSIVE_MUTEXES：同上对Recursive Mutexes设置
+
+configUSE_COUNTING_SEMAPHORES：同上对Counting Semaphores的设置
+
+configCHECK_FOR_STACK_OVERFLOW：详见后面关于栈溢出的学习
+
+configQUEUE_REGISTRY_SIZE：主要用于FreeRTOS内核调试，队列记录的2个目的:(1)GUI调试的时候用队列文本名简单的识别队列(2)包含调试器需要的Queues或Semaphores的记录信息。除了FreeRTOS内核调试之外没有任何其他的目的，此值定义最大记录长度，STM32F4xx里面默认设置成8
+
+configUSE_QUEUE_SETS：设置成1使能queue set功能，0则不使能。默认设置为0
+
+configUSE_TIME_SLICING：详见Task里的说明，默认设置成1
+
+configUSE_NEWLIB_REENTRANT：设置为1则[newlib](http://sourceware.org/newlib/) reent数据结构在创建task时allocated，FreeRTOS默认不使用，需要user自己决定是否使用，并能完全掌握newlib的情况下自行使用。
+
+configENABLE_BACKWARD_COMPATIBILITY：为了兼容v8.0.0之前的版本定义的一些宏，没有历史包袱可以不打开这个宏
+
+configNUM_THREAD_LOCAL_STORAGE_POINTERS：详见后面关于Thread Local Storage Pointers的学习，默认为0
+
+configSUPPORT_STATIC_ALLOCATION：默认为0，RTOS的对象只能在RTOS的heap上分配；设置成1，则需要用户提供额外的回调函数提供memory，vApplicationGetIdleTaskMemory和vApplicationGetTimerTaskMemory。详见后面的学习内容
+
+configSUPPORT_DYNAMIC_ALLOCATION：默认设置为1，RTOS对象在RTOS heap的RAM里分配；设置为0需要通过回调函数提供额外memory。同上见后面的学习内容
+
+configTOTAL_HEAP_SIZE：上面的宏设置为1，这个宏设置堆大小，STM32F4xx默认设置为15K
+
+configAPPLICATION_ALLOCATED_HEAP：默认为0，如果设置为1，需要user自定义heap数组：
+
+```c
+uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
+```
+
+configGENERATE_RUN_TIME_STATS:默认为0，详见后面Run Time Stats
+
+configUSE_CO_ROUTINES：默认为0，与co-routines相关
+
+configMAX_CO_ROUTINE_PRIORITIES：STM32F4xx默认为2，32位MCU一般不用Co-routines
+
+configUSE_TIMERS：默认为0，不打开Software Timers功能；1则不打开
+
+configTIMER_TASK_PRIORITY：如果上面的宏打开，则需要设置
+
+configTIMER_QUEUE_LENGTH：同上
+
+configTIMER_TASK_STACK_DEPTH：同上
+
+configKERNEL_INTERRUPT_PRIORITY &
+configMAX_SYSCALL_INTERRUPT_PRIORITY &
+configMAX_API_CALL_INTERRUPT_PRIORITY：
+这几个宏比较关键，移植工作中需要小心关注，与平台相关性大。总终配置还是以ARM Cortex-M4内核为例，详见[RTOS-Cortex-M3-M4介绍](http://www.freertos.org/RTOS-Cortex-M3-M4.html)。
+
+Coretex-M4需要配置configKERNEL_INTERRUPT_PRIORITY和configMAX_SYSCALL_INTERRUPT_PRIORITY，而configMAX_API_CALL_INTERRUPT_PRIORITY与configMAX_SYSCALL_INTERRUPT_PRIORITY等价，主要是应用于不同的平台移植时的兼容性上。
+
+Cortex-M系列的中断机制与FreeRTOS配合非常紧密，但是各家的Cortex-M处理器在中断优先级寄存器的设计上不尽相同，Cortex-M最多允许256级可编程优先级，寄存器8bit，配置范围(0~0xff)，不过STM32F4xx系列使用了4bit，所以范围是(0~0xf)，共16级可编程优先级。这里还要注意一点，ARM的中断优先级是数字越低，优先级越高，最高优先级是0，而与一般的逻辑优先级的概念刚好与此相反。STM32F4xx系列优先级寄存器是4bit，占用的是8bit寄存器的高4bit，如下图所示，优先级5在寄存器中的配置，其他不使用的位全部置为1：
+
+![Cortex-M_4bit_中断优先级配置寄存器示例]({{ "/images/cortex-m-priority-register-4-bits.png" | prepend:site.baseurl }})
+
+这样就能更好的理解FreeRTOS里面的配置(STM32F4xx Cortex-M4)：
+
+```c
+/* Cortex-M specific definitions. STM32F4xx use high 4bit to register interrupt priority*/
+#define configPRIO_BITS 4
+
+/* The lowest interrupt priority that can be used in a call to a "set priority" function. */
+#define configLIBRARY_LOWEST_INTERRUPT_PRIORITY 15
+
+/* The highest interrupt priority that can be used by any interrupt service routine that makes calls to interrupt safe FreeRTOS API functions.  DO NOT CALL INTERRUPT SAFE FREERTOS API FUNCTIONS FROM ANY INTERRUPT THAT HAS A HIGHER
+PRIORITY THAN THIS! (higher priorities are lower numeric values. */
+#define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5
+
+/* Interrupt priorities used by the kernel port layer itself.  These are generic to all Cortex-M ports, and do not rely on any particular library functions. */
+#define configKERNEL_INTERRUPT_PRIORITY (configLIBRARY_LOWEST_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
+/* !!!! configMAX_SYSCALL_INTERRUPT_PRIORITY must not be set to zero !!!! See http://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html. */
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY << (8 - configPRIO_BITS))
+```
+
+configKERNEL_INTERRUPT_PRIORITY一般配置成平台的最低优先级，FreeRTOS 内核就运行在这个优先级，configMAX_SYSCALL_INTERRUPT_PRIORITY配置为高优先级上限，这里配置成了5，那么更高的优先级(0~4)就被保留变成FreeRTOS不可屏蔽的中断优先级，这些更高优先级的中断里就不可以再调用FreeRTOS API，也完全不会受到FreeRTOS内核的影响，具有非常高的实时性，而中断优先级(5~15)就可以完全被FreeRTOS托管，应用程序应该使用这个中断优先级区间的优先级。
+
+configASSERT：断言的定义，开发阶段打开，release后可以关闭，不关闭会增大代码空间，带来性能损失。
+
+configINCLUDE_APPLICATION_DEFINED_PRIVILEGED_FUNCTIONS：默认为0，此宏定义仅与MPU功能相关，在开发阶段使用，release阶段需关闭。
+
+
+INCLUDE_xxx：以此前缀开头的宏用于决定是否将此API编译进项目工程，设置为1则进行编译，设置为0表示不编译。
+
+### Low Power Support
