@@ -53,7 +53,7 @@ Idle Task创建可以将宏定义configUSE_IDLE_HOOK设置为1，定义并实现
 void vApplicationIdleHook( void );
 ```
 
-或者单独定义一个最低优先级的任务也是可行的，FreeRTOS更推荐前一种做法。
+这个钩子函数是Idle Task流程中留给开发者实现的函数，开发者可以自定义在Idle Task里的执行内容，提醒开发者这个函数里面不可以有任何Block的操作，通过FreeRTOS的源码，task.c里面的static portTASK_FUNCTION(prvIdleTask, pvParameters)定义的Idle Task函数prvIdleTask的内容可以看到vApplicationIdleHook()的执行在tickless省电模式的前面，低功耗的流程在宏configUSE_TICKLESS_IDLE设置为非0的情况下执行，具体后面低功耗小节会详细介绍。
 
 ### Queues,Semaphores,Mutexes
 
@@ -229,7 +229,117 @@ configASSERT：断言的定义，开发阶段打开，release后可以关闭，�
 
 configINCLUDE_APPLICATION_DEFINED_PRIVILEGED_FUNCTIONS：默认为0，此宏定义仅与MPU功能相关，在开发阶段使用，release阶段需关闭。
 
-
 INCLUDE_xxx：以此前缀开头的宏用于决定是否将此API编译进项目工程，设置为1则进行编译，设置为0表示不编译。
 
 ### Low Power Support
+
+FreeRTOS默认已经实现了Idle Task，并在Idle Task里也给出了低功耗的流程，需要开发者添加一些自己应用场景相关的一些操作即可使用，其他就是一些宏开关的设置。官方给出的低功耗解读请参考[low-power-tickless-rtos](http://www.freertos.org/low-power-tickless-rtos.html)，而与ARM Cortex-M系列相关的请参考[low-power-ARM-CortexM-rtos](http://www.freertos.org/low-power-ARM-cortex-rtos.html)
+
+FreeRTOS用宏configUSE_TICKLESS_IDLE控制系统是否进入Tickless Idle Mode，FreeRTOS使用一个定时器产生操作系统Tick，一般设置为1ms产生1个Tick中断，如果系统进入低功耗以后，依然产生这个1ms中断，假如很长一段时间都没有高优先级任务需要执行，那么这1ms中断频繁从低功耗模式醒来也会带来很可观的功耗，因此有了这个Tickless模式。Tickless模式的原理就是进入低功耗前关闭1ms的中断，而是设置一个本次低功耗的阈值，无论是这个阈值时间到了从低功耗被唤醒，还是被其他的中断或事件唤醒，再重新启动1ms中断和修正操作系统的TickCount值，以此来达到低功耗情况下尽可能少的被唤醒，也是一种更好的省电策略。
+
+configUSE_TICKLESS_IDLE被置为1，FreeRTOS就可以在系统空闲并进入Idle Task之后进入到Tickless的处理流程，Idle Task里的源码在task.c里面：
+
+```c
+#if ( configUSE_TICKLESS_IDLE != 0 )
+...
+ //开发者自定义，增加此时的trace调试相关
+ traceLOW_POWER_IDLE_BEGIN();
+ //port.c中定义了Tickless低功耗的具体实现
+ portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime );
+ //开发者自定义，增加此时的trace调试相关
+ traceLOW_POWER_IDLE_END();
+...
+#endif /* configUSE_TICKLESS_IDLE */
+```
+
+关键Tickless低功耗模式参见port.c里的源码：
+
+```c
+__weak void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
+{
+ uint32_t ulReloadValue, ulCompleteTickPeriods, ulCompletedSysTickDecrements, ulSysTickCTRL;
+ TickType_t xModifiableIdleTime;
+
+ //ARM Systick提供Tick，Systick寄存器24bit，与Core时钟同频
+ //FreeRTOSConfig.h configSYSTICK_CLOCK_HZ=configCPU_CLOCK_HZ
+ //确保Systick的赋值不会溢出
+ if( xExpectedIdleTime > xMaximumPossibleSuppressedTicks )
+ {
+  xExpectedIdleTime = xMaximumPossibleSuppressedTicks;
+ }
+
+ //停止Systick
+ portNVIC_SYSTICK_CTRL_REG &= ~portNVIC_SYSTICK_ENABLE_BIT;
+ //计算Systick的Reload Tick数
+ ulReloadValue = portNVIC_SYSTICK_CURRENT_VALUE_REG + ( ulTimerCountsForOneTick * ( xExpectedIdleTime - 1UL )
+ if( ulReloadValue > ulStoppedTimerCompensation )
+ {
+   ulReloadValue -= ulStoppedTimerCompensation;
+ }
+
+ //进入临界区
+ //不使用taskENTER_CRITICAL()因其会退出省电模式
+ __disable_irq();
+ __dsb( portSY_FULL_READ_WRITE );
+ __isb( portSY_FULL_READ_WRITE );
+
+ //如果不符合进入低功耗的条件，暂时先不进低功耗
+ if( eTaskConfirmSleepModeStatus() == eAbortSleep )
+ {
+   portNVIC_SYSTICK_LOAD_REG = portNVIC_SYSTICK_CURRENT_VALUE_REG;
+   portNVIC_SYSTICK_CTRL_REG |= portNVIC_SYSTICK_ENABLE_BIT;
+   portNVIC_SYSTICK_LOAD_REG = ulTimerCountsForOneTick - 1UL;
+   __enable_irq();
+ }
+ else //进入低功耗的处理流程
+ {
+   //Systick设置成重载的值，即预期进入低功耗的计算出的合适的阈值
+   portNVIC_SYSTICK_LOAD_REG = ulReloadValue;
+   portNVIC_SYSTICK_CURRENT_VALUE_REG = 0UL;
+   portNVIC_SYSTICK_CTRL_REG |= portNVIC_SYSTICK_ENABLE_BIT;
+   xModifiableIdleTime = xExpectedIdleTime;
+
+   //开发者可以在这里定义自己的低功耗处理方式，而不用执行下面默认的
+   configPRE_SLEEP_PROCESSING( xModifiableIdleTime );
+   if( xModifiableIdleTime > 0 )
+   {
+     __dsb( portSY_FULL_READ_WRITE );
+     __wfi(); //WFI指令进入ARM的Sleep模式，任意中断可以唤醒
+     __isb( portSY_FULL_READ_WRITE );
+   }
+   configPOST_SLEEP_PROCESSING( xExpectedIdleTime );
+
+   ulSysTickCTRL = portNVIC_SYSTICK_CTRL_REG;
+   portNVIC_SYSTICK_CTRL_REG = ( ulSysTickCTRL & ~portNVIC_SYSTICK_ENABLE_BIT );
+   __enable_irq();
+
+   //计算FreeRTOS的Tick计数的补偿值
+   if( ( ulSysTickCTRL & portNVIC_SYSTICK_COUNT_FLAG_BIT ) != 0 )
+   {
+     //Systick计时到了产生的中断唤醒情况下的补偿计算
+     ...
+   }
+   else
+   {
+     //其他中断唤醒情况下的补偿计算，此时Systick计时未到
+     ...
+   }
+
+   //更新FreeRTOS的Tick计数xTickCount，启动Systick的1ms的Tick中断
+   portNVIC_SYSTICK_CURRENT_VALUE_REG = 0UL;
+   portENTER_CRITICAL();
+   {
+     portNVIC_SYSTICK_CTRL_REG |= portNVIC_SYSTICK_ENABLE_BIT;
+     vTaskStepTick( ulCompleteTickPeriods );
+     portNVIC_SYSTICK_LOAD_REG = ulTimerCountsForOneTick - 1UL;
+   }
+   portEXIT_CRITICAL();
+ }
+}
+```
+
+为了达到更加省电的模式，开发者可以在自定义的函数configPRE_SLEEP_PROCESSING()里面关闭不用的外设，降低时钟频率，关闭不使用的时钟和电源等，达到尽一切可能降低功耗的目的，而从低功耗退出后再恢复。
+
+以上就是FreeRTOS默认的低功耗处理流程，系统使用ARM Cortex-M提供的Systick产生Tick时钟，1ms中断，进入低功耗后修改Systick产生时钟的频率。很多开发者为了达到更加省电的目的，期望有更长的睡眠时间，即上面Systick的加载值更大，但是Systick是24Bit的(最大值0xffffff)，而且其使用的时钟频率与Core相同(160MHz)，因此由这2个参数就决定了低功耗使用Systick计时的每次休眠时间有一个上限值，大约100ms。因此，开发者就会考虑使用其他时钟替代Systick，如32Bit的定时器，这样上限值就扩大到了25s左右。再激进一点，如果在进入低功耗的时候，采用一个32Bit定时器而且是低频率的在睡眠期间做计时，醒来后再校正Systick和RTOS计数，是不是能够获得更长的睡眠周期^_^
+
+
