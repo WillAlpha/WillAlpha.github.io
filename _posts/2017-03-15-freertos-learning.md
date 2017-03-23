@@ -299,7 +299,9 @@ __weak void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
    portNVIC_SYSTICK_CTRL_REG |= portNVIC_SYSTICK_ENABLE_BIT;
    xModifiableIdleTime = xExpectedIdleTime;
 
-   //开发者可以在这里定义自己的低功耗处理方式，而不用执行下面默认的
+   //开发者可以在下面这个宏定义自己的低功耗处理方式
+   //而不用执行下面默认的进入低功耗的流程
+   //也可以在这个宏定义里添加其他时钟/电源/外设的处理
    configPRE_SLEEP_PROCESSING( xModifiableIdleTime );
    if( xModifiableIdleTime > 0 )
    {
@@ -338,8 +340,42 @@ __weak void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
 }
 ```
 
-为了达到更加省电的模式，开发者可以在自定义的函数configPRE_SLEEP_PROCESSING()里面关闭不用的外设，降低时钟频率，关闭不使用的时钟和电源等，达到尽一切可能降低功耗的目的，而从低功耗退出后再恢复。
+以上就是FreeRTOS默认的低功耗处理流程，系统使用ARM Cortex-M提供的Systick定时器产生Tick时钟，1ms中断，进入低功耗后停止Systick的1ms中断，重新加载一个更长的时间周期，这个期间FreeRTOS的Tick计数也不更新了，系统唤醒后再重新开启Systick的1ms中断，并补偿休眠期间RTOS的Tick计数。很多开发者为了达到更加省电的目的，期望有更长的睡眠时间，即上面Systick的加载值更大，但是Systick是24Bit的(最大值0xffffff)，而且其使用的时钟频率与Core相同(160MHz)，因此由这2个参数就决定了低功耗使用Systick计时的每次休眠时间有一个上限值，大约100ms，睡眠周期太短，开发者就会考虑使用其他定时器替代Systick，如32Bit的定时器(最大值0xffffffff)，这样上限值就扩大到了25s左右。再激进一点，如果在进入低功耗的时候，采用一个32Bit定时器而且是低频率的在睡眠期间做计时，醒来后再重新开启Systick和补偿RTOS计数，是不是就能够获得更长的睡眠周期^_^
 
-以上就是FreeRTOS默认的低功耗处理流程，系统使用ARM Cortex-M提供的Systick产生Tick时钟，1ms中断，进入低功耗后修改Systick产生时钟的频率。很多开发者为了达到更加省电的目的，期望有更长的睡眠时间，即上面Systick的加载值更大，但是Systick是24Bit的(最大值0xffffff)，而且其使用的时钟频率与Core相同(160MHz)，因此由这2个参数就决定了低功耗使用Systick计时的每次休眠时间有一个上限值，大约100ms。因此，开发者就会考虑使用其他时钟替代Systick，如32Bit的定时器，这样上限值就扩大到了25s左右。再激进一点，如果在进入低功耗的时候，采用一个32Bit定时器而且是低频率的在睡眠期间做计时，醒来后再校正Systick和RTOS计数，是不是能够获得更长的睡眠周期^_^
+FreeRTOS针对ARM Cortex-M也给出了相应[说明](http://www.freertos.org/low-power-ARM-cortex-rtos.html)，Systick定时器是FreeRTOS默认的为ARM Cortex-M处理器提供Tick中断的24Bit定时器，其Systick工作频率：
 
+* 可以与Core同频，FreeRTOSConfig.h里设置宏configSYSTICK_CLOCK_HZ与configCPU_CLOCK_HZ相同【默认】
+* 为了获得更长的休眠周期，也可以与Core不同频，单独设置宏configSYSTICK_CLOCK_HZ为Systick的时钟频率
 
+FreeRTOS从v7.3.0版本之后，支持开发者可以不使用Systick定时器而改用其他定时器为RTOS提供Tick中断：
+
+* 重新定义函数void vPortSetupTimerInterrupt(void)，替换成其他定时器产生RTOS的Tick中断，这个函数在vTaskStartScheduler()调用时被调用，初始化定时器并使能Tick中断，Tick周期参照宏configTICK_RATE_HZ定义。另外注意configOVERRIDE_DEFAULT_TICK_CONFIGURATION设置为1，原来的vPortSetupTimerInterrupt()就被注释掉，需要同名再创建一个新的函数
+* 相应的新定时器的中断处理函数也要定义，默认Systick的中断处理函数是xPortSysTickHandler()
+* 注意CMSIS标准命名SysTick_Handler()，在启动文件*.s汇编文件里用的这个命名为RTOS的Tick中断处理函数，使用新的定时器为RTOS提供Tick，不要与Systick定时器的中断处理程序搞混了，特别是命名上需要注意
+
+在执行WFI指令前后的两个宏定义如下，可以在前面一个宏定义里增加更多节约功耗的操作，如关闭外设，切换时钟，关闭电源等；也可以设置xExpectedIdleTime为0，不走接下来的进低功耗的流程，而自定义低功耗流程。后面一个宏定义是从低功耗退出后的处理，与前面的宏对应
+
+* configPRE_SLEEP_PROCESSING(xExpectedIdleTime)
+* configPOST_SLEEP_PROCESSING(xExpectedIdleTime)
+
+下面是一些配置示例总结：
+
+* 默认的低功耗机制，Systick定时器，频率与CPU Core同频，Tickless模式，设置宏USE_TICKLESS_IDLE=1
+* Systick定时器，频率与CPU Core不同频，Tickless模式，设置USE_TICKLESS_IDLE=1，设置configSYSTICK_CLOCK_HZ为实际时钟频率
+* 不使用Systick，而使用其他定时器产生RTOS的Tick中断，设置宏USE_TICKLESS_IDLE=2，自定义新定时器初始化函数vPortSetupTimerInterrupt()，设置宏configTICK_RATE_HZ，定义相应的xPortSysTickHandler()，新定时器的中断处理函数，同时注意CMSIS命名，不要与SysTick_Handler()产生冲突
+* 使用现有的机制，只是将Systick替换成其他的定时器，目前FreeRTOS还没有相关的配置
+
+FreeRTOS的低功耗机制已经基本学习完毕，结合ARM Cortex-M的低功耗，可以看出FreeRTOS的低功耗使用的是ARM的Sleep模式，通过STM32F4xx的[参考手册](http://www.stmcu.org/document/detail/index/id-200614)(Cortex-M4)，可以了解到其提供了3种低功耗模式，详见图示：
+
+![stm32_CortexM4_low_power_intro]({{ "/images/stm32f4_cortexm4_low_power_intro.jpg" | prepend:site.baseurl }})
+
+FreeRTOS里默认使用的是Sleep模式，还有2种分别是Stop模式和Standby模式。Standby模式是深度睡眠模式，最省电，但是一旦进入到这种低功耗模式，除了备份域(RTC与备份RAM)和待机电路寄存器外，寄存器和RAM中的内容全部Reset，基本可以理解为唤醒系统后软件从头运行，这种模式虽然省电，但是不适合应用在RTOS里面。再看一下Stop模式，进入这种模式的低功耗，1.2V电压域中的时钟全部停止，PLL/HSI/HSE RC振荡器也被禁止，内部SRAM和寄存器的内容会全部保留，但是在被唤醒之后，会有一个延迟，需要恢复时钟/恢复Flash的时间，如果使用调压器调压，也需要时间，这种模式也可以应用到RTOS里，但是，如果系统对实时性要求比较高，这样的省电模式就得慎重考虑如何使用了，还需要注意的一个问题是，当进入这种模式的低功耗之后，需要有一个在此时运行的定时器继续运行，在系统醒来之后进行计时补偿，如RTC。关于这几种功耗模式的使用，可以去参考标准固件库或者CubeMx固件库里的Examples。
+
+### 
+
+### Others
+
+FreeRTOS还提供了很多有用的功能:
+
+* [Trace Features](http://www.freertos.org/rtos-trace-macros.html)，在RTOS里很多关键的位置预留了trace调试接口
+* [Run Time Statistics](http://www.freertos.org/rtos-run-time-stats.html)，配置一个比RTOS的Tick定时器快10~100倍的定时器，调用接口得到如Tasks Run Time百分比统计信息等
