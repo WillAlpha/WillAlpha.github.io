@@ -371,7 +371,81 @@ FreeRTOS的低功耗机制已经基本学习完毕，结合ARM Cortex-M的低功
 
 FreeRTOS里默认使用的是Sleep模式，还有2种分别是Stop模式和Standby模式。Standby模式是深度睡眠模式，最省电，但是一旦进入到这种低功耗模式，除了备份域(RTC与备份RAM)和待机电路寄存器外，寄存器和RAM中的内容全部Reset，基本可以理解为唤醒系统后软件从头运行，这种模式虽然省电，但是不适合应用在RTOS里面。再看一下Stop模式，进入这种模式的低功耗，1.2V电压域中的时钟全部停止，PLL/HSI/HSE RC振荡器也被禁止，内部SRAM和寄存器的内容会全部保留，但是在被唤醒之后，会有一个延迟，需要恢复时钟/恢复Flash的时间，如果使用调压器调压，也需要时间，这种模式也可以应用到RTOS里，但是，如果系统对实时性要求比较高，这样的省电模式就得慎重考虑如何使用了，还需要注意的一个问题是，当进入这种模式的低功耗之后，需要有一个在此时运行的定时器继续运行，在系统醒来之后进行计时补偿，如RTC。关于这几种功耗模式的使用，可以去参考标准固件库或者CubeMx固件库里的Examples。
 
-### 
+### Memory Management
+
+FreeRTOS提供了5种堆内存分配管理文件，详见源码Source/Portable/MemMang下面的5个heap_x.c文件，每一种都代表了1种应用场景，开发者可以自己选择使用哪一种，或者替换成自定义的。
+
+* heap_1.c
+
+堆内存管理中最简单的一个，只能申请分配内存，一旦申请成功不能释放，不会产生内存碎片，特别适合对安全要求高的场景。
+
+在整片的堆内存上按照顺序依次获得需要大小的内存，xNextFreeByte用来记录已经分配的堆内存大小，(configADJUSTED_HEAP_SIZE - xNextFreeByte)计算剩余的堆内存，这里还要注意一个问题就是地址对齐，提高MCU的内存访问效率，STM32F4xx(Cortex-M4)的宏定义portBYTE_ALIGNMENT=8，即8字节对齐。
+
+* heap_2.c
+
+相比heap_1可以释放分配的堆内存，但是不会进行内存碎片整理，如果在使用堆内存时，如task/queue等每次用到的内存size是相同的，而不是变化不可确定的，打个比方如创建task需要分配内存，而所有的task创建时分配的内存大小相同，其他如Queue等也是如此，就可以使用这种方案，否则建议使用heap_4.c
+
+heap_1分配可以看成是对数组的操作，heap_2允许释放内存，就需要使用链表的数据结构，定义如下：
+
+```c
+typedef struct A_BLOCK_LINK
+{
+  struct A_BLOCK_LINK *pxNextFreeBlock; /*<< The next free block in the list. */
+  size_t xBlockSize; /*<< The size of the free block. */
+} BlockLink_t;
+```
+
+维护了一个可分配堆内存块的单向链表，而且是按照可分配堆内存的大小升序排列的，初始化时xStart是链表头，指向第一个可分配堆内存块，xEnd用作链表尾：
+
+```
+升序单向链表：
+xStart -> Free_Node_1 ... -> Free_Node_n -> xEnd
+
+升序排列条件：(Free_Node_1.xBlockSize < Free_Node_n.xBlockSize)
+xStart与xEnd为单独定义的链表节点，Free_Node_x都是堆内存里存储的节点
+
+每个内存块在堆内存中的存储格式：
+|------------------|
+|BlockLink_t       |
+| ->pxNextFreeBlock|
+| ->xBlockSize     |
+|------------------|
+|                  |
+|                  |
+| 对应xBlockSize的  |
+| 可分配的内存区     |
+|                  |
+|                  |
+|------------------|
+
+```
+
+Malloc()时从链表头开始寻找，找到第一个满足size的Free堆内存块，将此内存块从这个可分配的堆内存块的链表中移除，如果满足条件的内存块较大，则分裂成2个，前一个正好满足需求的大小，剩余的全部分给新的内存块，然后将这个内存块插入到可分配堆内存块的链表里。Free()时直接将内存块插入到链表里。使用xFreeBytesRemaining保存剩余的可分配的内存大小。
+
+* heap_3.c
+
+封装了标准C库里的malloc()和free()，需要在编译器里指定堆内存，宏定义configTOTAL_HEAP_SIZE对其不起作用。
+
+* heap_4.c
+
+Malloc()时使用first fit算法，不像heap_2那样按照大小升序排列后找到size刚好匹配的那个，heap_4是按照地址前后排列的，malloc()时找到第一个合适大小的内存就分配，malloc()和free()中将相邻的Free的内存块合并成更大的Free内存块，更适合不确定大小的内存分配使用场景。
+
+数据结构还是单链表，其定义与heap_2相同，还是维护一个可分配堆内存的链表，但不是升序排列，而是按地址前后顺序。初始化后xStart还是链表头，与之前相同都是指向第一个可分配的堆内存块，xEnd还是链表尾，但是存储在堆内存尾部，xFreeBytesRemaining还是保存剩余的可分配的内存大小，新增了2个变量，xMinimumEverFreeBytesRemaining用于保存当前可分配的堆内存块的最小size，xBlockAllocatedBit用于标记数值的最高位为1，如32bit的MCU，其值为0x80000000，在算法中与BlockLink_t->xBlockSize进行与or或操作，用于标示此内存块是否是Free可以分配的。
+
+Malloc()还是遍历链表，找到第一个大小合适的内存就分配，如果此内存块更大，则分裂成两个节点，然后将Free的那个节点插入到可分配堆内存链表里，此链表节点按照地址先后顺序排列，每次寻找到合适的地址插入点，判断是否可以与前后节点合并成一个节点，然后进行合并或者插入链表，然后更新xFreeBytesRemaining、xFreeBytesRemaining，xBlockAllocatedBit操作。Free()也是完成上面的插入链表的操作。内存块合并操作在插入链表的过程中完成，相邻地址合并原则。
+
+* heap_5.c
+
+同样适用了heap_4中的first fit和内存块合并算法，不同的是heap_5应对的是堆内存分布在不连续的区域上的情况，如：
+
+```c
+const HeapRegion_t xHeapRegions[] =
+{
+  { ( uint8_t * ) 0x80000000UL, 0x10000 },
+  { ( uint8_t * ) 0x90000000UL, 0xa0000 },
+  { NULL, 0 } /* Terminates the array. */
+};
+```
 
 ### Others
 
