@@ -436,9 +436,16 @@ Malloc()还是遍历链表，找到第一个大小合适的内存就分配，如
 
 * heap_5.c
 
-同样适用了heap_4中的first fit和内存块合并算法，不同的是heap_5应对的是堆内存分布在不连续的区域上的情况，如：
+同样使用了heap_4中的first fit和内存块合并算法，不同的是heap_5应对的是堆内存分布在不连续的区域上的情况，如：
 
 ```c
+/* Used by heap_5.c. */
+typedef struct HeapRegion
+{
+  uint8_t *pucStartAddress;
+  size_t xSizeInBytes;
+} HeapRegion_t;
+
 const HeapRegion_t xHeapRegions[] =
 {
   { ( uint8_t * ) 0x80000000UL, 0x10000 },
@@ -446,6 +453,35 @@ const HeapRegion_t xHeapRegions[] =
   { NULL, 0 } /* Terminates the array. */
 };
 ```
+
+首先要对堆内存区域进行初始化，详见下面的初始化函数：
+
+```c
+void vPortDefineHeapRegions(const HeapRegion_t * const pxHeapRegions)
+```
+
+初始化函数就是将所有的堆内存块用链表链接起来，每一块地址连续的堆内存块格式如下：
+
+```
+|------------------|
+|BlockLink_t       |
+| ->pxNextFreeBlock|
+| ->xBlockSize     |
+|------------------|
+|                  |
+|                  |
+| 对应xBlockSize的  |
+| 可分配的内存区     |
+|                  |
+|                  |
+|------------------|
+|BlockLink_t       |
+| ->pxNextFreeBlock|
+| ->xBlockSize=0   |
+|------------------|
+```
+
+然后将所有的堆内存块链接起来，相应的变量初始化好后，初始化工作就完成了。剩下的就与heap_4的使用完全相同了，完全看成是待分配的Free堆内存链表，只是不连续的区域可以认为是已经被分配的内存(永远不会被释放回来)，其Malloc()/Free()以及相应的链表插入操作与heap_4完全相同。
 
 ### Others
 
