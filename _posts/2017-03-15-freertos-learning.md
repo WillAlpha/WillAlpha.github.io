@@ -118,7 +118,7 @@ configUSE_DAEMON_TASK_STARTUP_HOOK：默认设置为0
 configUSE_TICK_HOOK:设置为1，在节拍中断的处理函数里面会执行这个hook函数，设置为0则不执行。一般没什么需要设置为0。函数原型：
 
 ```c
-void vApplicationTickHook(void); 
+void vApplicationTickHook(void);
 ```
 
 configCPU_CLOCK_HZ:写入正确的系统时钟频率，后面相应的时钟节拍也要基于此计算
@@ -412,8 +412,8 @@ xStart与xEnd为单独定义的链表节点，Free_Node_x都是堆内存里存�
 |------------------|
 |                  |
 |                  |
-| 对应xBlockSize的  |
-| 可分配的内存区     |
+| 对应xBlockSize的 |
+| 可分配的内存区    |
 |                  |
 |                  |
 |------------------|
@@ -470,8 +470,8 @@ void vPortDefineHeapRegions(const HeapRegion_t * const pxHeapRegions)
 |------------------|
 |                  |
 |                  |
-| 对应xBlockSize的  |
-| 可分配的内存区     |
+| 对应xBlockSize的 |
+| 可分配的内存区    |
 |                  |
 |                  |
 |------------------|
