@@ -483,9 +483,35 @@ void vPortDefineHeapRegions(const HeapRegion_t * const pxHeapRegions)
 
 然后将所有的堆内存块链接起来，相应的变量初始化好后，初始化工作就完成了。剩下的就与heap_4的使用完全相同了，完全看成是待分配的Free堆内存链表，只是不连续的区域可以认为是已经被分配的内存(永远不会被释放回来)，其Malloc()/Free()以及相应的链表插入操作与heap_4完全相同。
 
+### Stack Usage and Stack Overflow Checking
+
+Task Stack检查功能，通过宏定义configCHECK_FOR_STACK_OVERFLOW开启栈溢出检查功能，在vTaskSwitchContext()时做栈溢出检查，FreeRTOS提供了2种栈溢出检查方法，开发者需要自定义hook函数vApplicationStackOverflowHook()，栈溢出后再此函数内添加开发者自己的调试信息，此功能在开发和测试阶段使用。
+
+* configCHECK_FOR_STACK_OVERFLOW=1
+
+此方法检查栈地址是否越界来判断是否栈溢出，此方法速度快，但是在task运行时已经栈溢出，出栈后栈指针又回到正常范围内，就无法检测到了。
+
+* configCHECK_FOR_STACK_OVERFLOW=2 (目前只要大于1)
+
+此方法在task初始化时将整个栈初始化为特定值0xa5a5a5a5，检查最后16个byte是否被修改成其他值的方法来判断是否发生栈溢出，相比第一种方法是慢一些，但是确实避免了上面检测不到的情况。
+
+关于Stack Overflow & Detecting的方法还有很多，还可以参看[uC/OS的一些方法总结](https://www.micrium.com/detecting-stack-overflows-part-2-of-2/)。使用MCU特定的栈指针地址保护(访问到某段地址就会产生Exception中断)，或者利用Cortex-M的MPU功能做地址保护，访问到被保护的地址产生Exception中断，或者利用软中断等方法。这样做的好处是在Task运行时就能够判断出是否栈溢出了，一旦发生栈溢出会产生Exception中断。
+
 ### Others
 
-FreeRTOS还提供了很多有用的功能:
+FreeRTOS还提供了很多有用的功能、Demo和资料:
 
 * [Trace Features](http://www.freertos.org/rtos-trace-macros.html)，在RTOS里很多关键的位置预留了trace调试接口
 * [Run Time Statistics](http://www.freertos.org/rtos-run-time-stats.html)，配置一个比RTOS的Tick定时器快10~100倍的定时器，调用接口得到如Tasks Run Time百分比统计信息等
+* [Porting Guide](http://www.freertos.org/FreeRTOS-porting-guide.html)移植工作指导
+* [Windows Simulator](http://www.freertos.org/FreeRTOS-Windows-Simulator-Emulator-for-Visual-Studio-and-Eclipse-MingW.html)/[Posix/Linux Simulator](http://www.freertos.org/FreeRTOS-simulator-for-Linux.html)模拟器相关
+* [How FreeRTOS Works](http://www.freertos.org/implementation/main.html)基于AVR平台由浅入深的介绍FreeRTOS工作原理
+* [Memory Protection Support](http://www.freertos.org/FreeRTOS-MPU-memory-protection-unit.html)MPU支持
+* [API](http://www.freertos.org/a00106.html)详细介绍
+* [Supported Devices & Demos](http://www.freertos.org/a00090.html)列出了FreeRTOS目前支持的芯片厂家及其产品系列
+* [Demo Projects](http://www.freertos.org/a00102.html)列出了一些典型的Demo工程
+
+
+## 小结
+
+主要以FreeRTOS官网提供的资料为主，结合ARM Cortex-M，对一些主要功能进行了深入的理解，没有对FreeRTOS的API使用和构建应用进一步的深入，从应用层角度使用RTOS是基本类似的，也是比较容易上手的部分，需要的时候直接查看官方文档。
