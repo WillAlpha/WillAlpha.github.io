@@ -59,7 +59,7 @@ typedef struct xLIST
   listFIRST_LIST_INTEGRITY_CHECK_VALUE
   configLIST_VOLATILE UBaseType_t uxNumberOfItems;
   ListItem_t * configLIST_VOLATILE pxIndex;
-  MiniListItem_t xListEnd;	
+  MiniListItem_t xListEnd;
   listSECOND_LIST_INTEGRITY_CHECK_VALUE
 } List_t;
 ```
@@ -103,7 +103,7 @@ BaseType_t xTaskCreate(...)
 static void prvInitialiseNewTask(...)
 {
   ...
-  
+
   //如果启用Stack Overflow检查
   //则将stack初始化为特定值tskSTACK_FILL_BYTE
   ( void ) memset( pxNewTCB->pxStack, ( int ) tskSTACK_FILL_BYTE, ( size_t ) ulStackDepth * sizeof( StackType_t ) );
@@ -114,7 +114,7 @@ static void prvInitialiseNewTask(...)
   pxTopOfStack = pxNewTCB->pxStack + ( ulStackDepth - ( uint32_t ) 1 );
   //地址对齐操作，stack操作更快
   pxTopOfStack = ( StackType_t * ) ( ( ( portPOINTER_SIZE_TYPE ) pxTopOfStack ) & ( ~( ( portPOINTER_SIZE_TYPE ) portBYTE_ALIGNMENT_MASK ) ) );
-  
+
   ...
 
   //保存pxNewTCB->pcTaskName
@@ -143,7 +143,7 @@ static void prvInitialiseNewTask(...)
   //设置ListItem_t->xItemValue为优先级取反
   //逻辑优先级是数字越大优先级越高，存储的时候取反，数字越小优先级越高
   //配合前面List数据结构, 按照xItemValue大小排序，那么双链表首节点都是优先级最大的节点
-  listSET_LIST_ITEM_VALUE( &( pxNewTCB->xEventListItem ), ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) uxPriority ); 
+  listSET_LIST_ITEM_VALUE( &( pxNewTCB->xEventListItem ), ( TickType_t ) configMAX_PRIORITIES - ( TickType_t ) uxPriority );
   //ListItem_t->pvOwener指向此task的TCB
   listSET_LIST_ITEM_OWNER( &( pxNewTCB->xEventListItem ), pxNewTCB );
 
@@ -176,7 +176,7 @@ static void prvAddNewTaskToReadyList( TCB_t *pxNewTCB )
       //没有任务或者其他任务都在Suspend状态
       //全局变量pxCurrentTCB指向此task TCB，永远指向当前运行的task TCB
       pxCurrentTCB = pxNewTCB;
-      
+
       if( uxCurrentNumberOfTasks == ( UBaseType_t ) 1 )
       {
         //第一个任务，初始化Task List，详见对此函数的解读
@@ -194,7 +194,7 @@ static void prvAddNewTaskToReadyList( TCB_t *pxNewTCB )
         }
       }
     }
-    
+
     uxTaskNumber++;
     #if ( configUSE_TRACE_FACILITY == 1 )
     {
@@ -238,8 +238,7 @@ StackType_t *pxPortInitialiseStack(StackType_t *pxTopOfStack, TaskFunction_t pxC
   pxTopOfStack -= 5;	/* R12, R3, R2 and R1. */
   *pxTopOfStack = ( StackType_t ) pvParameters;	/* R0 */
 
-  /* A save method is being used that requires each task to maintain its
-  own exec return value. */
+  /* A save method is being used that requires each task to maintain its own exec return value. */
   pxTopOfStack--;
   *pxTopOfStack = portINITIAL_EXEC_RETURN; //返回值
 
@@ -288,15 +287,16 @@ Task创建的过程已经基本清楚了，接着再看task调度过程，通过
 ```c
 void vTaskStartScheduler( void )
 {
-  //先创建Idle Task；如果用到Timers，还要创建Timers的task
+  //先创建Idle Task
   xReturn = xTaskCreate(prvIdleTask, ...
   ...
+  //如果用到Timers，还要创建Timers的task
   #if ( configUSE_TIMERS == 1 )
   {
     if( xReturn == pdPASS )
     {
       xReturn = xTimerCreateTimerTask();
-    } 
+    }
   }
   #endif /* configUSE_TIMERS */
 
@@ -353,7 +353,7 @@ void vPortSetupTimerInterrupt( void )
     xMaximumPossibleSuppressedTicks = portMAX_24_BIT_NUMBER / ulTimerCountsForOneTick;
     //Cpu Cycles的补偿值，还是应用在Tickless模式低功耗
     ulStoppedTimerCompensation = portMISSED_COUNTS_FACTOR / ( configCPU_CLOCK_HZ / configSYSTICK_CLOCK_HZ );
-		}
+  }
   #endif /* configUSE_TICKLESS_IDLE */
 
   //Systick tick中断加载值及使能，期望的频率是由宏configTICK_RATE_HZ定义(1ms中断)
@@ -366,7 +366,8 @@ __asm void prvStartFirstTask( void )
   PRESERVE8
 
   /* Use the NVIC offset register to locate the stack. */
-  //向量表偏移量寄存器第一项存储着MSP即主堆栈指针
+  //0xE000ED08是Cortex-M4向量表偏移量寄存器(VTOR)的地址
+  //起始地址存储着MSP即主堆栈指针
   ldr r0, =0xE000ED08
   ldr r0, [r0]
   ldr r0, [r0]
@@ -383,4 +384,23 @@ __asm void prvStartFirstTask( void )
   nop
   nop
 }
+
+//SVC中断处理函数
+__asm void vPortSVCHandler( void )
+{
+  PRESERVE8
+
+  ldr r3, =pxCurrentTCB  //将pxCurrentTCB的值作为地址赋值给r3
+  ldr r1, [r3]  //将pxCurrentTCB指针指向的值，当前task TCB的地址赋值给r1
+  ldr r0, [r1]  //取得当前要运行的task栈顶指针，并赋值给r0，由此理解为什么TCB数据结构的第一项必须设计为栈顶指针
+  ldmia r0!, {r4-r11}  //寄存器r4~r11出栈
+  msr psp, r0  //栈顶指针赋给线程堆栈指针PSP
+  isb
+  mov r0, #0
+  msr basepri, r0
+  orrr14, #0xd  //0x0d:返回后进入线程模式
+  bx r14
+}
 ```
+
+三个特殊的中断及中断处理函数，Systick/SVC/PendSV，这也是在移植FreeRTOS时需要特别注意的地方，Systick产生RTOS需要的Tick中断，其中断处理函数与RTOS密切相关，SVC如上所示启动Task，PendSV用于task调度切换，Systick/PendSV配置成了最低优先级，在中断抢占的前提下，PendSV被抢占但是在处理完高优先级的任务后，依然会进入中断处理函数处理，这样不会打断高优先级的任务，也能完成任务的调度切换。
