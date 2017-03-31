@@ -10,7 +10,7 @@ author: Will
 {:toc}
 
 
-通过FreeRTOS官网资料，已经可以很好的使用FreeRTOS了，再深入的理解就需要深入到源码层，接下来就阅读源码，版本v9.0.0。
+通过FreeRTOS官网资料，已经可以很好的使用FreeRTOS了，再深入的理解就需要深入到源码层，接下来就阅读源码，FreeRTOS版本v9.0.0，平台为ARM Cortex-M4，编译工具为ARM MDK。
 
 FreeRTOS需要关注的源码：
 
@@ -20,7 +20,7 @@ list.c
 task.c
 queue.c
 
-//平台相关
+//平台相关，STM32(ARM Cortex-M4)
 port.c
 //已经分析过，Memory Management相关
 heap_x.c
@@ -398,9 +398,139 @@ __asm void vPortSVCHandler( void )
   isb
   mov r0, #0
   msr basepri, r0
-  orrr14, #0xd  //0x0d:返回后进入线程模式
-  bx r14
+  bx r14  //跳转执行目标task
 }
 ```
 
 三个特殊的中断及中断处理函数，Systick/SVC/PendSV，这也是在移植FreeRTOS时需要特别注意的地方，Systick产生RTOS需要的Tick中断，其中断处理函数与RTOS密切相关，SVC如上所示启动Task，PendSV用于task调度切换，Systick/PendSV配置成了最低优先级，在中断抢占的前提下，PendSV被抢占但是在处理完高优先级的任务后，依然会进入中断处理函数处理，这样不会打断高优先级的任务，也能完成任务的调度切换。
+
+Task调度机制启动后，任务就开始执行，FreeRTOS里面的任务切换一般在PendSV中断处理函数里面进行，而PendSV中断则是由Systick中断中触发的，也就是系统Tick中断中判断是否有任务需要切换，需要则产生PendSV中断，然后再PendSV中断处理函数里面执行切换操作。另外，在xCreateTask()过程分析中(Idle Task里面也有这样的操作)，我们也见到了直接切换的方式taskYIELD()，产生PendSV中断。总结2种方式：
+
+```c
+//第一种，直接产生PendSV中断
+portYIELD或者portYIELD_FROM_ISR
+
+#define portYIELD()											
+{
+  portNVIC_INT_CTRL_REG = portNVIC_PENDSVSET_BIT;			 
+
+  __dsb( portSY_FULL_READ_WRITE );
+  __isb( portSY_FULL_READ_WRITE );
+}
+
+//第二种，判断是否有task需要切换，然后再决定是否产生PendSV中断
+void xPortSysTickHandler( void )
+{
+  vPortRaiseBASEPRI();
+  {
+    if(xTaskIncrementTick() != pdFALSE)
+    {
+      portNVIC_INT_CTRL_REG = portNVIC_PENDSVSET_BIT;
+    }
+  }
+  vPortClearBASEPRIFromISR();
+}
+```
+
+具体的切换过程即为PendSV的中断处理函数，汇编+C实现，还是有一些ARM Cortex-M4相关的部分放置在port.c中，而且这部分C语言也很难实现。
+
+```
+__asm void xPortPendSVHandler( void )
+{
+  extern uxCriticalNesting;
+  extern pxCurrentTCB;
+  extern vTaskSwitchContext;
+
+  PRESERVE8
+
+  //先进行当前task的入栈操作，task的栈指针寄存器使用psp
+  //中断服务程序处理之前，自动入栈xPSR、PC、LR、R12、R3~R0
+  mrs r0, psp
+  isb
+  /* Get the location of the current TCB. */
+  ldr	r3, =pxCurrentTCB
+  ldr	r2, [r3]
+
+  /* Is the task using the FPU context?  If so, push high vfp registers. */
+  //FPU入栈
+  tst r14, #0x10
+  it eq
+  vstmdbeq r0!, {s16-s31}
+
+  /* Save the core registers. */
+  //其他寄存器入栈
+  stmdb r0!, {r4-r11, r14}
+
+  /* Save the new top of stack into the first member of the TCB. */
+  //更新最新的栈指针到当前task TCB首地址(即第一项保存当前栈指针)
+  str r0, [r2]
+
+  //R3入栈，后面调用vTaskSwitchContext()，此函数从ReadyList里取出即将运行的task TCB赋值给pxCurrentTCB
+  //R3保存了pxCurrentTCB地址
+  stmdb sp!, {r3}
+  mov r0, #configMAX_SYSCALL_INTERRUPT_PRIORITY
+  msr basepri, r0
+  dsb
+  isb
+  bl vTaskSwitchContext
+  mov r0, #0
+  msr basepri, r0
+  ldmia sp!, {r3} 
+  //恢复R3，此时的pxCurrentTCB已经指向了即将运行的task TCB
+
+  /* The first item in pxCurrentTCB is the task top of stack. */
+  //取得task TCB的栈指针
+  ldr r1, [r3]
+  ldr r0, [r1]
+
+  /* Pop the core registers. */
+  //部分寄存器出栈
+  ldmia r0!, {r4-r11, r14}
+
+  /* Is the task using the FPU context?  If so, pop the high vfp registers too. */
+  //FPU出栈
+  tst r14, #0x10
+  it eq
+  vldmiaeq r0!, {s16-s31}
+
+  //将task的当前栈指针赋值给psp
+  msr psp, r0
+  isb
+  bx r14 //跳转至即将运行的task运行，R0~R3、R12、LR、PC、xPSR自动出栈
+}
+```
+
+Cortex-M4提供了2个栈指针MSP和PSP，PSP就是MCU正常运行时使用的栈指针，因此一般PSP都指向了某个task的栈，而MSP在异常情况下使用，MSP一般指向的是整个系统的栈，两个栈指针寄存器分工不同。通过上面的过程，也可以看到出栈入栈的顺序：
+
+```
+	|             | Stack
+	|-------------|
+	|    xPSR     |
+	|    PC       |
+	|    LR       |
+	|    R12      |
+	|    R3       |
+	|    ...      |
+	|    R0       |
+	|    R14      |
+	|    R11      |
+	|    ...      |
+	|    R4       | <-PSP
+	|-------------| 
+	|             |
+```
+
+Task相关的创建、调度及切换的源码基本读了一遍，还有些细节暂放一下，继续阅读。
+
+## Queue
+
+队列应用于任务间通讯，可以在任务与任务之间，中断服务程序与任务之间传递消息，消息是通过Copy进队列的方式传递的，队列维护消息体本身，多了一次Copy而不是使用引用，对消息体本身的安全性和完整性有益。另外，Semaphore/Mutex也是借助Queue实现的，需要对Queue进一步的理解。
+
+队列的数据结构定义为xQUEUE，此结构较大，暂时不对其细致的理解，后面阅读源码过程中深入理解，再看队列创建函数xQueueCreate()，实际是xQueueGenericCreate()函数。
+
+```c
+QueueHandle_t xQueueGenericCreate(...)
+{
+  
+}
+```
