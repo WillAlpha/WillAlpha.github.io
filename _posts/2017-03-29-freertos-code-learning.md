@@ -531,6 +531,81 @@ Task相关的创建、调度及切换的源码基本读了一遍，还有些细�
 ```c
 QueueHandle_t xQueueGenericCreate(...)
 {
-  
+  //Queue分配堆内存  
+
+  //初始化Queue
+  prvInitialiseNewQueue(...);
 }
 ```
+
+为Queue分配堆内存大小及顺序：Queue_t结构体+队列消息内容占用内存总和。
+
+```
+	|-----------------------|
+	|    Queue_t结构体      |
+	|-----------------------|
+	|    Queue所有队列项     |
+	|-----------------------|
+```
+
+再看具体的Queue初始化源码：
+
+```c
+static void prvInitialiseNewQueue(...)
+{
+  ...
+  
+  //初始化完善Queue_t数据结构的各项
+  if( uxItemSize == ( UBaseType_t ) 0 )
+  {
+    //Mutex时没有队列消息项，直接指向Queue_t首地址
+    pxNewQueue->pcHead = ( int8_t * ) pxNewQueue;
+  }
+  else
+  {
+    //队列头指向队列消息项的首地址
+    pxNewQueue->pcHead = ( int8_t * ) pucQueueStorage;
+  }
+
+  pxNewQueue->uxLength = uxQueueLength;
+  pxNewQueue->uxItemSize = uxItemSize;
+  //更多的初始化，继续深入阅读
+  ( void ) xQueueGenericReset(pxNewQueue, pdTRUE);
+  ...
+}
+
+BaseType_t xQueueGenericReset(QueueHandle_t xQueue, BaseType_t xNewQueue)
+{
+  ...
+
+  taskENTER_CRITICAL();
+  {
+    //tail指向队列尾
+    pxQueue->pcTail = pxQueue->pcHead + ( pxQueue->uxLength * pxQueue->uxItemSize );
+    //当前队列里的队列项个数
+    pxQueue->uxMessagesWaiting = ( UBaseType_t ) 0U;
+    //指向下一个可写的队列项
+    pxQueue->pcWriteTo = pxQueue->pcHead;
+    //指向最后一个队列项
+    pxQueue->u.pcReadFrom = pxQueue->pcHead + ( ( pxQueue->uxLength - ( UBaseType_t ) 1U ) * pxQueue->uxItemSize );
+    //初始化Queue Lock时接收和发送的队列项
+    pxQueue->cRxLock = queueUNLOCKED;
+    pxQueue->cTxLock = queueUNLOCKED;
+
+    ...
+
+    //初始化了2个List，记录了等待超时和接收消息的tasks List
+    vListInitialise( &( pxQueue->xTasksWaitingToSend ) );
+    vListInitialise( &( pxQueue->xTasksWaitingToReceive ) );
+  }
+  taskEXIT_CRITICAL();
+
+  return pdPASS;
+}
+```
+
+初始化完成后的Queue模型如下图所示：
+
+![FreeRTOS_queue_model]({{ "/images/freertos_queue_model.png" | prepend:site.baseurl }})
+
+前面是Queue_t结构，后面紧跟着的Item_x为实际队列项(队列消息体)，Queue_t中的两个List存储的是与此对列相关的tasks。接下来再看队列的入队出队。
