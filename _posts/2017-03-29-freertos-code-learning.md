@@ -584,9 +584,9 @@ BaseType_t xQueueGenericReset(QueueHandle_t xQueue, BaseType_t xNewQueue)
     pxQueue->pcTail = pxQueue->pcHead + ( pxQueue->uxLength * pxQueue->uxItemSize );
     //当前队列里的队列项个数
     pxQueue->uxMessagesWaiting = ( UBaseType_t ) 0U;
-    //指向下一个可写的队列项
+    //指向下一个可写的队列项，用于队列入队时向队尾添加队列项
     pxQueue->pcWriteTo = pxQueue->pcHead;
-    //指向最后一个队列项
+    //指向最后一个队列项，用于队列入队时向队首添加队列项
     pxQueue->u.pcReadFrom = pxQueue->pcHead + ( ( pxQueue->uxLength - ( UBaseType_t ) 1U ) * pxQueue->uxItemSize );
     //初始化Queue Lock时接收和发送的队列项
     pxQueue->cRxLock = queueUNLOCKED;
@@ -608,4 +608,104 @@ BaseType_t xQueueGenericReset(QueueHandle_t xQueue, BaseType_t xNewQueue)
 
 ![FreeRTOS_queue_model]({{ "/images/freertos_queue_model.png" | prepend:site.baseurl }})
 
-前面是Queue_t结构，后面紧跟着的Item_x为实际队列项(队列消息体)，Queue_t中的两个List存储的是与此对列相关的tasks。接下来再看队列的入队出队。
+前面是Queue_t结构，后面紧跟着的Item_x为实际队列项(队列消息体)，Queue_t中的两个List存储的是与此队列相关联的tasks。继续看xQueueSend()也就是xQueueGenericSend()源码
+
+```c
+BaseType_t xQueueGenericSend(...）
+{
+  ...
+
+  for(;;)
+  {
+    taskENTER_CRITICAL();
+    {
+      //检查队列是否满，如果是overwrite方式直接入队
+      if( ( pxQueue->uxMessagesWaiting < pxQueue->uxLength ) || ( xCopyPosition == queueOVERWRITE ) )
+      {
+        //三种入队方式：队尾，队首和overwrite
+        //特别注意当用作Mutex使用时，返回值可能为True，即需要切换到更高优先级任务，需要执行任务调度
+        xYieldRequired = prvCopyDataToQueue( pxQueue, pvItemToQueue, xCopyPosition );
+        
+        ...
+        
+        //先忽略掉Queue Sets的情况
+        //如果有tasks正在等待接收队列消息
+        if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToReceive ) ) == pdFALSE )
+        {
+          //如果有任务在等待队列消息，则将此任务添加进任务Ready List
+          if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToReceive ) ) != pdFALSE )
+          {
+            queueYIELD_IF_USING_PREEMPTION();
+          }
+        }
+        else if (xYieldRequired != pdFALSE)
+        {
+          //仅用作Mutex时，释放Mutex后调度任务(Mutex有优先级继承)
+          queueYIELD_IF_USING_PREEMPTION();
+        }
+        else
+        {
+        }
+        taskEXIT_CRITICAL();
+        return pdPASS;
+      }
+      else //队列满，且非overwrite方式入队
+      {
+        if( xTicksToWait == ( TickType_t ) 0 )
+        {
+          //队列满了，而且没有设置超时等待，则直接退出，返回队列满
+          taskEXIT_CRITICAL();
+          return errQUEUE_FULL;
+        }
+        else if( xEntryTimeSet == pdFALSE )
+        {
+          //队列满了，而且设置了超时等待，则初始化了一个timeout数据结构
+          vTaskSetTimeOutState( &xTimeOut );
+          xEntryTimeSet = pdTRUE;
+        }
+        else
+        {
+        }
+      }      
+    }
+    taskEXIT_CRITICAL();
+    
+    //退出临界区，全部任务挂起，阻止任务调度
+    vTaskSuspendAll();
+    //锁定Queue，将Queue_t里的rxLock和txLock设置为Lock
+    prvLockQueue( pxQueue );
+
+    if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
+    {
+      //队列等待超时未过期
+      if( prvIsQueueFull( pxQueue ) != pdFALSE )
+      {
+        //队列满
+        vTaskPlaceOnEventList( &( pxQueue->xTasksWaitingToSend ), xTicksToWait );
+        //解锁队列
+        prvUnlockQueue( pxQueue );
+        //将tasks从PendingReadyList移至ReadyList
+        if( xTaskResumeAll() == pdFALSE )
+        {
+          portYIELD_WITHIN_API();
+        }
+      }
+      else
+      {
+        //队列未满
+        //解锁队列，恢复挂起的所有任务，没有return，继续for循环
+        prvUnlockQueue( pxQueue );
+        ( void ) xTaskResumeAll();
+      }
+    }
+    else 
+    {
+      //设置的队列等待超时过期
+      prvUnlockQueue( pxQueue );
+      //挂起的tasks全部恢复，返回队列满
+      ( void ) xTaskResumeAll();
+      return errQUEUE_FULL;
+    }
+  }
+}
+```
