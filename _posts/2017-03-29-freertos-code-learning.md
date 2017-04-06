@@ -132,9 +132,9 @@ static void prvInitialiseNewTask(...)
   #endif /* configUSE_MUTEXES */
 
   //ListItem_t初始化，状态与事件ListItem
-  //Task在Ready/Blocked/Suspended某个状态时，相应的List会指向这个ListItem_t
+  //Task在Ready/Blocked/Suspended某个状态时，此ListItem_t会挂到相应的List
   vListInitialiseItem( &( pxNewTCB->xStateListItem ) );
-  //Event相关，task相关的某个Event List会指向这个ListItem_t
+  //task相关的某个Event List会指向这个ListItem_t，如Queue满了而阻塞，将其挂接到等待入队的List
   vListInitialiseItem( &( pxNewTCB->xEventListItem ) );
 
   //ListItem_t->pvOwener指向此task的TCB
@@ -653,7 +653,7 @@ BaseType_t xQueueGenericSend(...）
       {
         if( xTicksToWait == ( TickType_t ) 0 )
         {
-          //队列满了，而且没有设置超时等待，则直接退出，返回队列满
+          //队列满了，而且没有设置超时等待，则直接退出，返回队列满错误
           taskEXIT_CRITICAL();
           return errQUEUE_FULL;
         }
@@ -669,10 +669,11 @@ BaseType_t xQueueGenericSend(...）
       }      
     }
     taskEXIT_CRITICAL();
+    //退出临界区，此处可能会有任务调度
     
-    //退出临界区，全部任务挂起，阻止任务调度
+    //全部任务挂起，阻止任务调度
     vTaskSuspendAll();
-    //锁定Queue，将Queue_t里的rxLock和txLock设置为Lock
+    //锁定Queue，将Queue_t里的rxLock和txLock设置为Lock，阻止了任务调度，但是中断处理程序里还是可以对Queue进行操作，因此对Queue上锁
     prvLockQueue( pxQueue );
 
     if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
@@ -681,6 +682,7 @@ BaseType_t xQueueGenericSend(...）
       if( prvIsQueueFull( pxQueue ) != pdFALSE )
       {
         //队列满
+        //将当前task加入到等待此队列入队的等待List和延时List
         vTaskPlaceOnEventList( &( pxQueue->xTasksWaitingToSend ), xTicksToWait );
         //解锁队列
         prvUnlockQueue( pxQueue );
@@ -702,10 +704,267 @@ BaseType_t xQueueGenericSend(...）
     {
       //设置的队列等待超时过期
       prvUnlockQueue( pxQueue );
-      //挂起的tasks全部恢复，返回队列满
+      //挂起的tasks全部恢复，返回队列满错误
       ( void ) xTaskResumeAll();
       return errQUEUE_FULL;
     }
   }
 }
 ```
+
+队列入队后，如果队列未满，将等待此队列消息的List(xTasksWaitingToReceive)中需要解除阻塞的task从等待消息的List中删除，然后将其添加进任务Ready List中，然后再与当前运行的task的优先级做一下比较，如果优先级更高则产生一次调度。详见函数xTaskRemoveFromEventList()。
+
+如果队列满了，则情况稍微复杂一些，如果队列入队时没有设置阻塞等待时间，即xTicksToWait=0，则直接返回队列满错误；如果设置了阻塞等待时间，而且时间未到，则将当前运行的task加入到等待此队列入队的等待List里(xTasksWaitingToSend)，还要将此任务加入到延时List中，可参考函数vTaskPlaceOnEventList()，解锁队列，恢复所有挂起的任务，恢复调度，如果此时有更高优先级的任务Ready，则产生一次任务调度；如果设置了阻塞时间，而且时间到，则解锁Queue，恢复所有挂起的任务，恢复调度，返回队列满错误。
+
+接着再看一下中断处理函数里相关的Queue的操作函数xQueueGenericSendFromISR()
+
+```c
+BaseType_t xQueueGenericSendFromISR(...)
+{
+  ...
+  uxSavedInterruptStatus = portSET_INTERRUPT_MASK_FROM_ISR();
+  {
+    if( ( pxQueue->uxMessagesWaiting < pxQueue->uxLength ) || ( xCopyPosition == queueOVERWRITE ) )
+    {
+      //队列未满或overwrite
+      //入队，分三种方式：队尾、队首、overwrite
+      ( void ) prvCopyDataToQueue( pxQueue, pvItemToQueue, xCopyPosition );
+
+      if( cTxLock == queueUNLOCKED )
+      {
+        //如果队列unlock
+        ...
+        
+        //队列非空
+        if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToReceive ) ) == pdFALSE )
+        {
+          //如果有任务在等待队列消息，则将此任务添加进任务Ready List
+          if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToReceive ) ) != pdFALSE )
+          {
+            //设置为pdTRUE，则代表需要一次任务切换
+            if( pxHigherPriorityTaskWoken != NULL )
+            {
+              *pxHigherPriorityTaskWoken = pdTRUE;
+            }
+          }
+        }
+      }
+      else
+      {
+        //如果队列lock，此时不可以操作队列，只有tx锁计数器加1
+        pxQueue->cTxLock = ( int8_t ) ( cTxLock + 1 );
+      }
+
+      xReturn = pdPASS;
+    }
+    else
+    {
+      //队列满了，直接返回队列满错误
+      xReturn = errQUEUE_FULL;
+    }
+  }
+  portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
+  
+  return xReturn;
+}
+```
+
+中断服务程序里的队列入队操作就要简单许多，不同的处理是在队列被锁定后，不再做任何操作了，直接将cTxLock计数器加1，在队列被解锁后，根据计数器的值，依次处理相关的队列项。
+
+再接着看出队函数xQueueReceive()，也就是xQueueGenericReceive()，与入队的操作相反，基本逻辑非常类似。
+
+```c
+BaseType_t xQueueGenericReceive(...)
+{
+  ...
+  for( ;; )
+  {
+    taskENTER_CRITICAL();
+    {
+      const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
+      //等待消息队列项非空
+      if( uxMessagesWaiting > ( UBaseType_t ) 0 )
+      {
+        pcOriginalReadPosition = pxQueue->u.pcReadFrom;
+
+        //出队操作，不像前面入队那样分三种情况了，出队只有copy操作
+        prvCopyDataFromQueue( pxQueue, pvBuffer );
+
+        if( xJustPeeking == pdFALSE )
+        {
+          //需要移除队列消息项，一般情况都采用这种操作，走这个分支
+          pxQueue->uxMessagesWaiting = uxMessagesWaiting - 1;
+
+          #if ( configUSE_MUTEXES == 1 )
+          {
+            //Mutex时的操作
+            if( pxQueue->uxQueueType == queueQUEUE_IS_MUTEX )
+            {
+              pxQueue->pxMutexHolder = ( int8_t * ) pvTaskIncrementMutexHeldCount();
+            }
+          }
+          #endif
+
+          if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToSend ) ) == pdFALSE )
+          {
+            //队列等待发送List非空，有task在等待向队列发送消息
+            //将此任务添加进任务Ready List
+            if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToSend ) ) != pdFALSE )
+            {
+              //如果有任务需要调度，产生一次任务调度
+              queueYIELD_IF_USING_PREEMPTION();
+            }
+          }
+        }
+        else
+        {
+          //不需要移除队列消息项
+          pxQueue->u.pcReadFrom = pcOriginalReadPosition;
+
+          if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToReceive ) ) == pdFALSE )
+          {
+            if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToReceive ) ) != pdFALSE )
+            {
+              queueYIELD_IF_USING_PREEMPTION();
+            }
+          }
+        }
+
+        taskEXIT_CRITICAL();
+        return pdPASS;
+      }
+      else
+      {
+        //等待消息队列项为空
+        if( xTicksToWait == ( TickType_t ) 0 )
+        {
+          //设置等待阻塞超时时间为0，则直接返回队列空错误
+          taskEXIT_CRITICAL();
+
+          return errQUEUE_EMPTY;
+        }
+        else if( xEntryTimeSet == pdFALSE )
+        {
+          //设置了等待阻塞超时时间，则初始化一个TimeOut数据结构
+          vTaskSetTimeOutState( &xTimeOut );
+          xEntryTimeSet = pdTRUE;
+        }
+        else
+        {
+        }
+      }
+    }
+    taskEXIT_CRITICAL();
+    //退出临界区，此处可能会有任务调度
+
+    //所有任务挂起，阻止任务调度
+    vTaskSuspendAll();
+    //Queue锁定，此时可以处理中断，中断处理程序里可能对队列有操作
+    prvLockQueue( pxQueue );
+
+    if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
+    {
+      //等待阻塞超时时间未到
+      if( prvIsQueueEmpty( pxQueue ) != pdFALSE )
+      {
+        //队列未空
+        #if ( configUSE_MUTEXES == 1 )
+        {
+          //Mutex时的操作
+          if( pxQueue->uxQueueType == queueQUEUE_IS_MUTEX )
+          {
+            taskENTER_CRITICAL();
+            {
+              vTaskPriorityInherit( ( void * ) pxQueue->pxMutexHolder );
+            }
+            taskEXIT_CRITICAL();
+          }
+        }
+        #endif
+
+        //将任务加入到等待接收队列消息的List和延时List
+        vTaskPlaceOnEventList( &( pxQueue->xTasksWaitingToReceive ), xTicksToWait );
+        //Queue解锁
+        prvUnlockQueue( pxQueue );
+        //挂起的任务全部恢复，并启动调度
+        if( xTaskResumeAll() == pdFALSE )
+        {
+          //如果有调度需要，产生一次调度
+          portYIELD_WITHIN_API();
+        }
+      }
+      esle
+      {
+        //队列为非空
+        prvUnlockQueue( pxQueue );
+        ( void ) xTaskResumeAll();
+      }
+    }
+    else
+    {
+      //等待阻塞超时时间到
+      //Queue解锁，恢复挂起的任务，开启任务调度
+      prvUnlockQueue( pxQueue );
+      ( void ) xTaskResumeAll();
+
+      if( prvIsQueueEmpty( pxQueue ) != pdFALSE )
+      {
+        //队列未空，返回队列空错误
+        return errQUEUE_EMPTY;
+      }
+    }
+  }
+}
+```
+
+另一个中断处理程序里的函数xQueueReceiveFromISR()也与相应的入队时类似。
+
+```c
+BaseType_t xQueueReceiveFromISR(...)
+{
+  uxSavedInterruptStatus = portSET_INTERRUPT_MASK_FROM_ISR();
+  {
+    const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
+    if( uxMessagesWaiting > ( UBaseType_t ) 0 )
+    {
+      ...
+      //将队列消息项copy出队列
+      prvCopyDataFromQueue( pxQueue, pvBuffer );
+      pxQueue->uxMessagesWaiting = uxMessagesWaiting - 1;
+
+      if( cRxLock == queueUNLOCKED )
+      {
+        //队列unlock
+        if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToSend ) ) == pdFALSE )
+        {
+          //有task等待向队列发送消息，将此task从等待发送队列的List中移除，并加入到任务的Ready List里
+          if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToSend ) ) != pdFALSE )
+          {
+            if( pxHigherPriorityTaskWoken != NULL )
+            {
+              //有任务调度，将任务调度标志置位pdTRUE
+              *pxHigherPriorityTaskWoken = pdTRUE;
+            }
+          }
+        }
+      }
+      else
+      {
+        //队列lock，队列不进行操作，将rxLock计数器加1，后面队列解锁后再依次做相应的处理
+        pxQueue->cRxLock = ( int8_t ) ( cRxLock + 1 );
+      }
+    }
+    else
+    {
+      xReturn = pdFAIL;
+    }
+  }
+  portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
+
+  return xReturn;
+}
+```
+
+## Semaphore & Mutex
+
+信号量和互斥量也是基于Queue实现的，有了前面阅读Queue相关源码的基础，继续阅读这两者就能更好的理解。
