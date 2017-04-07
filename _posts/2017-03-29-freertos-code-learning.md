@@ -956,6 +956,7 @@ BaseType_t xQueueReceiveFromISR(...)
     }
     else
     {
+      //队列里没有接收的消息，直接返回失败错误
       xReturn = pdFAIL;
     }
   }
@@ -968,3 +969,165 @@ BaseType_t xQueueReceiveFromISR(...)
 ## Semaphore & Mutex
 
 信号量和互斥量也是基于Queue实现的，有了前面阅读Queue相关源码的基础，继续阅读这两者就能更好的理解。
+
+Binary Semaphore创建函数xSemaphoreCreateBinary()，从下面的宏定义看出创建了一个type为queueQUEUE_TYPE_BINARY_SEMAPHORE，队列size为1，队列项size为0的队列。
+
+```c
+#define xSemaphoreCreateBinary()
+xQueueGenericCreate( ( UBaseType_t ) 1, semSEMAPHORE_QUEUE_ITEM_LENGTH, queueQUEUE_TYPE_BINARY_SEMAPHORE )
+```
+
+Counting Semaphore创建函数xSemaphoreCreateCounting()，由下面的代码可以看出是创建一个type为queueQUEUE_TYPE_COUNTING_SEMAPHORE，队列size为创建时的参数uxMaxCount(计数最大值)，队列项size为0的队列。另一个初始化时的参数uxInitialCount是信号量的初始值(即为队列里消息项的个数)。
+
+```c
+#define xSemaphoreCreateCounting( uxMaxCount, uxInitialCount )
+xQueueCreateCountingSemaphore( ( uxMaxCount ), ( uxInitialCount ) )
+
+QueueHandle_t xQueueCreateCountingSemaphore(...)
+{
+  QueueHandle_t xHandle;
+
+  xHandle = xQueueGenericCreate( uxMaxCount, queueSEMAPHORE_QUEUE_ITEM_LENGTH, queueQUEUE_TYPE_COUNTING_SEMAPHORE );
+
+  if( xHandle != NULL )
+  {
+    ( ( Queue_t * ) xHandle )->uxMessagesWaiting = uxInitialCount;
+  }
+
+  return xHandle;
+}
+```
+
+Mutex的创建函数xSemaphoreCreateMutex()，由下面的代码可以看出，创建了一个type为queueQUEUE_TYPE_MUTEX，队列size为1，队列项size为0的队列。
+
+```c
+#define xSemaphoreCreateMutex() xQueueCreateMutex( queueQUEUE_TYPE_MUTEX )
+
+QueueHandle_t xQueueCreateMutex( const uint8_t ucQueueType )
+{
+  Queue_t *pxNewQueue;
+  const UBaseType_t uxMutexLength = ( UBaseType_t ) 1, uxMutexSize = ( UBaseType_t ) 0;
+
+  pxNewQueue = ( Queue_t * ) xQueueGenericCreate( uxMutexLength, uxMutexSize, ucQueueType );
+  prvInitialiseMutex( pxNewQueue );
+
+  return pxNewQueue;
+}
+
+static void prvInitialiseMutex( Queue_t *pxNewQueue )
+{
+  if( pxNewQueue != NULL )
+  {
+    //实际是在Mutex情况下，将Queue_t的pcTail和pcHead赋予了新的意义
+    pxNewQueue->pxMutexHolder = NULL;
+    pxNewQueue->uxQueueType = queueQUEUE_IS_MUTEX;
+
+    //用于Recursive Mutex
+    pxNewQueue->u.uxRecursiveCallCount = 0;
+
+    //这里相当于先释放了Mutex，即使用Mutex第一次就可以获取资源，区别于Binary Semaphore
+    ( void ) xQueueGenericSend( pxNewQueue, NULL, ( TickType_t ) 0U, queueSEND_TO_BACK );
+  }
+}
+```
+
+通过Mutex和Binary Semaphore的初始化源码可以看出，在使用上Mutex创建完成后，可以直接获得资源，然后用完了再释放；而Binary Semaphore不同，创建完成后不能直接获取到，需要先释放再获取。
+
+Recursive Mutex的创建函数xSemaphoreCreateRecursiveMutex()，实际与Mutex初始化相同，只是一个类型的区别queueQUEUE_TYPE_RECURSIVE_MUTEX，默认FreeRTOS不打开此功能。
+
+```c
+#define xSemaphoreCreateRecursiveMutex() xQueueCreateMutex( queueQUEUE_TYPE_RECURSIVE_MUTEX )
+```
+
+接着看Semaphore和Mutex的Take和Give，其中Binary Semaphore/Semaphore/Mutex的API相同，Recursive Mutex有单独的API
+
+```c
+//Take操作就是Queue的出队操作
+#define xSemaphoreTake( xSemaphore, xBlockTime )
+xQueueGenericReceive( ( QueueHandle_t ) ( xSemaphore ), NULL, ( xBlockTime ), pdFALSE )
+
+//特别注意Mutex不能再中断中使用，因此这个API只适用于Semaphore
+#define xSemaphoreTakeFromISR( xSemaphore, pxHigherPriorityTaskWoken )
+xQueueReceiveFromISR( ( QueueHandle_t ) ( xSemaphore ), NULL, ( pxHigherPriorityTaskWoken ) )
+
+//Give操作就是Queue的入队操作
+#define xSemaphoreGive(xSemaphore)
+xQueueGenericSend( ( QueueHandle_t ) ( xSemaphore ), NULL, semGIVE_BLOCK_TIME, queueSEND_TO_BACK )
+
+//特别注意Mutex不能再中断中使用，因此这个API只适用于Semaphore
+#define xSemaphoreGiveFromISR( xSemaphore, pxHigherPriorityTaskWoken )
+xQueueGiveFromISR( ( QueueHandle_t ) ( xSemaphore ), ( pxHigherPriorityTaskWoken ) )
+```
+
+Give操作就是Queue的入队操作，队列满了就返回满错误；未满则入队，计算加1，判断是否有任务阻塞，如果有则任务调度。Take操作就是Queue的出队操作，队列不为空，则计数减1，判断是否有任务入队阻塞，如果有则任务调度；队列为空，阻塞等待时间为0，则直接返回空错误；队列为空，阻塞等待时间不为0，则任务阻塞，并将任务加入延时列表。特别注意Mutex不能在中断处理函数中操作。
+
+Recursive Mutex的Take和Give的API区别于其他3个
+
+```c
+#define xSemaphoreTakeRecursive( xMutex, xBlockTime )
+xQueueTakeMutexRecursive( ( xMutex ), ( xBlockTime ) )
+
+BaseType_t xQueueTakeMutexRecursive( QueueHandle_t xMutex, TickType_t xTicksToWait )
+{
+  BaseType_t xReturn;
+  Queue_t * const pxMutex = ( Queue_t * ) xMutex;
+
+  if( pxMutex->pxMutexHolder == ( void * ) xTaskGetCurrentTaskHandle() )
+  {
+    //非第一次调用此API，此时pxMutexHolder与当前task的TCB相同，直接uxRecursiveCallCount加1，不用去操作队列函数；如果此时是另一个任务Take，则会到下面的分支阻塞在xQueueGenericReceive
+    //同一个任务只要递归Mutex没有将所有Take的次数Give掉，就直接进入这个分支；同一个任务一旦Give掉所有的Take次数，pxMutexHolder置为NULL，就会进入下面的分支，此时有其他任务想Take此Mutex会获得Take的机会
+    ( pxMutex->u.uxRecursiveCallCount )++;
+    xReturn = pdPASS;
+  }
+  else
+  {
+    //如果第一次调用此API去Take递归Mutex，将当前Task的TCB赋值给pxMutexHolder，然后将uxRecursiveCallCount加1
+    //如果递归Mutex的Give所有Take的次数，将pxMutexHolder置为NULL，则又进入到这个分支，如果此时有其他任务Take递归Mutex，则会获得机会，否则只能被阻塞在xQueueGenericReceive
+    xReturn = xQueueGenericReceive( pxMutex, NULL, xTicksToWait, pdFALSE );
+
+    if( xReturn != pdFAIL )
+    {
+      ( pxMutex->u.uxRecursiveCallCount )++;
+    }
+  }
+
+  return xReturn;
+}
+
+#define xSemaphoreGiveRecursive( xMutex )
+xQueueGiveMutexRecursive( ( xMutex ) )
+
+BaseType_t xQueueGiveMutexRecursive( QueueHandle_t xMutex )
+{
+  BaseType_t xReturn;
+  Queue_t * const pxMutex = ( Queue_t * ) xMutex;
+
+  //判断是否在同一个任务中Give
+  if( pxMutex->pxMutexHolder == ( void * ) xTaskGetCurrentTaskHandle() )
+  {
+    //通过uxRecursiveCallCount计数递归，每次Give操作此值减1
+    ( pxMutex->u.uxRecursiveCallCount )--;
+
+    if( pxMutex->u.uxRecursiveCallCount == ( UBaseType_t ) 0 )
+    {
+      //如果Give的次数刚好与Take的次数相等，向pxMutex队列里发送一条消息，pxMutexHolder置为NULL，这样Give次数过多就不会再走进这个分支，而是直接返回错误；另外如果有其他任务需要Take递归Mutex，则获得机会
+      ( void ) xQueueGenericSend( pxMutex, NULL, queueMUTEX_GIVE_BLOCK_TIME, queueSEND_TO_BACK );
+    }
+
+    xReturn = pdPASS;
+  }
+  else
+  {
+    //如果不在同一个任务中直接返回错误，还有Give的次数超过了Take的次数也会走到这里
+    xReturn = pdFAIL;
+  }
+
+  return xReturn;
+}
+```
+
+由上面的源码可以看出，Mutex需要在同一个任务中获取释放，作为资源共享锁的使用方式，pxMutexHolder会记录创建Mutex时的task TCB，Take和Give时都会判断是否是在同一个task中，如果不是直接返回错误。而Binary Semaphore没有优先级继承，而且可以在任意的任务中获取释放。
+
+Mutex具有优先级继承，主要用作资源共享时，提升当前获得Mutex的任务的优先级至等待此资源的所有任务中的最高优先级，尽最大可能的避免优先级翻转造成的危害(高优先级任务一直得不到资源一直被挂起，或者直接死锁了)。
+
+可以看出，Semaphore和Mutex都是使用Queue实现的，只用到了Queue的头部分，即Queue_t结构体，而Queue的队列项则为空。Binary Semaphore/Semaphore/Mutex/Recursive Mutex各有自己的创建API，最终都是调用的Queue的创建函数；Binary Semaphore/Semaphore/Mutex的Take和Give操作API相同，Recursive Mutex有自己的单独的API操作；Semaphore有中断相关的API，但是Mutex不能在中断处理程序中执行，Mutex具有优先级继承，而且必须在同一个任务中Take和Give，而Semaphore没有优先级继承，可以在任意的任务中Take，然后在任意的任务中Give，或者反过来操作。
