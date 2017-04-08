@@ -410,7 +410,7 @@ Task调度机制启动后，任务就开始执行，FreeRTOS里面的任务切�
 //第一种，直接产生PendSV中断
 portYIELD或者portYIELD_FROM_ISR
 
-#define portYIELD()											
+#define portYIELD()
 {
   portNVIC_INT_CTRL_REG = portNVIC_PENDSVSET_BIT;			 
 
@@ -475,7 +475,7 @@ __asm void xPortPendSVHandler( void )
   bl vTaskSwitchContext
   mov r0, #0
   msr basepri, r0
-  ldmia sp!, {r3} 
+  ldmia sp!, {r3}
   //恢复R3，此时的pxCurrentTCB已经指向了即将运行的task TCB
 
   /* The first item in pxCurrentTCB is the task top of stack. */
@@ -516,7 +516,7 @@ Cortex-M4提供了2个栈指针MSP和PSP，PSP就是MCU正常运行时使用的�
 	|    R11      |
 	|    ...      |
 	|    R4       | <-PSP
-	|-------------| 
+	|-------------|
 	|             |
 ```
 
@@ -554,7 +554,7 @@ QueueHandle_t xQueueGenericCreate(...)
 static void prvInitialiseNewQueue(...)
 {
   ...
-  
+
   //初始化完善Queue_t数据结构的各项
   if( uxItemSize == ( UBaseType_t ) 0 )
   {
@@ -625,9 +625,9 @@ BaseType_t xQueueGenericSend(...）
         //三种入队方式：队尾，队首和overwrite
         //特别注意当用作Mutex使用时，返回值可能为True，即需要切换到更高优先级任务，需要执行任务调度
         xYieldRequired = prvCopyDataToQueue( pxQueue, pvItemToQueue, xCopyPosition );
-        
+
         ...
-        
+
         //先忽略掉Queue Sets的情况
         //如果有tasks正在等待接收队列消息
         if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToReceive ) ) == pdFALSE )
@@ -670,7 +670,7 @@ BaseType_t xQueueGenericSend(...）
     }
     taskEXIT_CRITICAL();
     //退出临界区，此处可能会有任务调度
-    
+
     //全部任务挂起，阻止任务调度
     vTaskSuspendAll();
     //锁定Queue，将Queue_t里的rxLock和txLock设置为Lock，阻止了任务调度，但是中断处理程序里还是可以对Queue进行操作，因此对Queue上锁
@@ -700,7 +700,7 @@ BaseType_t xQueueGenericSend(...）
         ( void ) xTaskResumeAll();
       }
     }
-    else 
+    else
     {
       //设置的队列等待超时过期
       prvUnlockQueue( pxQueue );
@@ -734,7 +734,7 @@ BaseType_t xQueueGenericSendFromISR(...)
       {
         //如果队列unlock
         ...
-        
+
         //队列非空
         if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToReceive ) ) == pdFALSE )
         {
@@ -764,7 +764,7 @@ BaseType_t xQueueGenericSendFromISR(...)
     }
   }
   portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
-  
+
   return xReturn;
 }
 ```
@@ -1046,7 +1046,7 @@ Recursive Mutex的创建函数xSemaphoreCreateRecursiveMutex()，实际与Mutex�
 #define xSemaphoreTake( xSemaphore, xBlockTime )
 xQueueGenericReceive( ( QueueHandle_t ) ( xSemaphore ), NULL, ( xBlockTime ), pdFALSE )
 
-//特别注意Mutex不能再中断中使用，因此这个API只适用于Semaphore
+//特别注意Mutex不能在中断中使用，因此这个API只适用于Semaphore
 #define xSemaphoreTakeFromISR( xSemaphore, pxHigherPriorityTaskWoken )
 xQueueReceiveFromISR( ( QueueHandle_t ) ( xSemaphore ), NULL, ( pxHigherPriorityTaskWoken ) )
 
@@ -1054,7 +1054,7 @@ xQueueReceiveFromISR( ( QueueHandle_t ) ( xSemaphore ), NULL, ( pxHigherPriority
 #define xSemaphoreGive(xSemaphore)
 xQueueGenericSend( ( QueueHandle_t ) ( xSemaphore ), NULL, semGIVE_BLOCK_TIME, queueSEND_TO_BACK )
 
-//特别注意Mutex不能再中断中使用，因此这个API只适用于Semaphore
+//特别注意Mutex不能在中断中使用，因此这个API只适用于Semaphore
 #define xSemaphoreGiveFromISR( xSemaphore, pxHigherPriorityTaskWoken )
 xQueueGiveFromISR( ( QueueHandle_t ) ( xSemaphore ), ( pxHigherPriorityTaskWoken ) )
 ```
@@ -1110,7 +1110,7 @@ BaseType_t xQueueGiveMutexRecursive( QueueHandle_t xMutex )
 
     if( pxMutex->u.uxRecursiveCallCount == ( UBaseType_t ) 0 )
     {
-      //如果Give的次数刚好与Take的次数相等，向pxMutex队列里发送一条消息，pxMutexHolder置为NULL，这样Give次数过多就不会再走进这个分支，而是直接返回错误；另外如果有其他任务需要Take递归Mutex，则获得机会
+      //如果Give的次数刚好与Take的次数相等，向pxMutex队列里发送一条消息，pxMutexHolder置为NULL，这样Give次数过多就不会再走进这个分支，而是直接返回错误；另外如果有其他任务需要Take递归Mutex，则获得机会，即释放了递归Mutex
       ( void ) xQueueGenericSend( pxMutex, NULL, queueMUTEX_GIVE_BLOCK_TIME, queueSEND_TO_BACK );
     }
 
@@ -1131,3 +1131,168 @@ BaseType_t xQueueGiveMutexRecursive( QueueHandle_t xMutex )
 Mutex具有优先级继承，主要用作资源共享时，提升当前获得Mutex的任务的优先级至等待此资源的所有任务中的最高优先级，尽最大可能的避免优先级翻转造成的危害(高优先级任务一直得不到资源一直被挂起，或者直接死锁了)。
 
 可以看出，Semaphore和Mutex都是使用Queue实现的，只用到了Queue的头部分，即Queue_t结构体，而Queue的队列项则为空。Binary Semaphore/Semaphore/Mutex/Recursive Mutex各有自己的创建API，最终都是调用的Queue的创建函数；Binary Semaphore/Semaphore/Mutex的Take和Give操作API相同，Recursive Mutex有自己的单独的API操作；Semaphore有中断相关的API，但是Mutex不能在中断处理程序中执行，Mutex具有优先级继承，而且必须在同一个任务中Take和Give，而Semaphore没有优先级继承，可以在任意的任务中Take，然后在任意的任务中Give，或者反过来操作。
+
+## Task Notifications
+
+Task Notifications是FreeRTOS V8.2.0之后新增的功能，官方文档结论是比Queue/Semaphore/Mutex/Event Groups更快，使用RAM更少，可以携带长度为1的消息内容，完全基于Task实现。
+
+Task TCB数据结构里相关的定义如下：
+
+```c
+typedef struct tskTaskControlBlock
+{
+  ...
+
+#if( configUSE_TASK_NOTIFICATIONS == 1 )
+  volatile uint32_t ulNotifiedValue;
+  volatile uint8_t ucNotifyState;
+#endif
+
+  ...
+} tskTCB;
+```
+
+Task Notifications的发送通知函数xTaskGenericNotify()
+
+```c
+typedef enum
+{
+  eNoAction = 0, //发送通知但不使用ulValue值，无通知内容
+  eSetBits, //被通知的任务的通知值按bit或ulValue
+  eIncrement, //被通知的任务的通知值加1
+  eSetValueWithOverwrite, //被通知任务的通知值直接设置成ulValue，无论之前的通知值是否已经被读取
+  eSetValueWithoutOverwrite	//之前的任务通知值被读取后，再更新被通知任务的通知值，如果没有读取则丢弃当前的ulValue
+} eNotifyAction;
+
+BaseType_t xTaskGenericNotify(...)
+{
+  TCB_t * pxTCB;
+  BaseType_t xReturn = pdPASS;
+  uint8_t ucOriginalNotifyState;
+
+  pxTCB = ( TCB_t * ) xTaskToNotify;
+
+  taskENTER_CRITICAL();
+  {
+    if( pulPreviousNotificationValue != NULL )
+    {
+      //函数传入的参数，将ulNotifiedValue更新前的值赋值给这个传入参数，发送通知的task获得更新前的通知值
+      *pulPreviousNotificationValue = pxTCB->ulNotifiedValue;
+    }
+
+    //保存ucNotifyState
+    ucOriginalNotifyState = pxTCB->ucNotifyState;
+    //更新ucNotifyState
+    pxTCB->ucNotifyState = taskNOTIFICATION_RECEIVED;
+
+    //更新通知的方法，详见eNotifyAction枚举定义
+    switch( eAction )
+    {
+      case eSetBits	:
+        pxTCB->ulNotifiedValue |= ulValue;
+        break;
+
+      case eIncrement	:
+        ( pxTCB->ulNotifiedValue )++;
+        break;
+
+      case eSetValueWithOverwrite	:
+        pxTCB->ulNotifiedValue = ulValue;
+        break;
+
+      case eSetValueWithoutOverwrite :
+        if( ucOriginalNotifyState != taskNOTIFICATION_RECEIVED )
+        {
+          pxTCB->ulNotifiedValue = ulValue;
+        }
+        else
+        {
+          xReturn = pdFAIL;
+        }
+        break;
+
+      case eNoAction:
+        break;
+    }
+
+    if( ucOriginalNotifyState == taskWAITING_NOTIFICATION )
+    {
+      //被通知的任务正好在等待通知的状态，则将其添加到任务Ready List
+      ( void ) uxListRemove( &( pxTCB->xStateListItem ) );
+      prvAddTaskToReadyList( pxTCB );
+
+      #if( configUSE_TICKLESS_IDLE != 0 )
+      {
+        prvResetNextTaskUnblockTime();
+      }
+      #endif
+
+      if( pxTCB->uxPriority > pxCurrentTCB->uxPriority )
+      {
+        //如果发现等待通知的任务优先级更高，则触发一次任务调度
+        taskYIELD_IF_USING_PREEMPTION();
+      }
+  }
+  taskEXIT_CRITICAL();
+
+  return xReturn;
+}
+```
+
+从上面的源码可以看出任务通知的机制非常简洁，与任务本身相关，将相关的信息填写到任务TCB之后，判断等待通知的任务优先级是否更高，如果更高则直接触发一次任务调度。由此，可以理解任务只能等待在一个任务通知上，也可以获得长度为1的消息内容，这也有别于Semaphore/Queue等方式，但是简洁高效是其最大的特点，在某些场景下可以使用此方式。
+
+中断处理函数里的任务通知函数与非中断保护的函数类似，只是增加了开关中断保护；而等待任务通知不能在中断中执行，等待通知函数ulTaskNotifyTake()和xTaskNotifyWait()，直接看xTaskNotifyWait()
+
+```c
+BaseType_t xTaskNotifyWait(...)
+{
+  BaseType_t xReturn;
+
+  taskENTER_CRITICAL();
+  {
+    //如果任务没有收到通知
+    if( pxCurrentTCB->ucNotifyState != taskNOTIFICATION_RECEIVED )
+    {
+      pxCurrentTCB->ulNotifiedValue &= ~ulBitsToClearOnEntry;
+      //将任务状态设置为等待通知状态
+      pxCurrentTCB->ucNotifyState = taskWAITING_NOTIFICATION;
+      if( xTicksToWait > ( TickType_t ) 0 )
+      {
+        //如果设置了阻塞等待超时时间，则将任务加入Delay List
+        prvAddCurrentTaskToDelayedList( xTicksToWait, pdTRUE );
+        //触发任务调度
+        portYIELD_WITHIN_API();
+      }
+    }
+  }
+  taskEXIT_CRITICAL();
+  //退出临界区，如果有任务调度，则任务被挂起
+
+  taskENTER_CRITICAL();
+  {
+    if( pulNotificationValue != NULL )
+    {
+      //通知值赋值给函数传入参数，返回给调用者
+      *pulNotificationValue = pxCurrentTCB->ulNotifiedValue;
+    }
+
+    if( pxCurrentTCB->ucNotifyState == taskWAITING_NOTIFICATION )
+    {
+      //没有收到通知值，可能是阻塞等待超时或者阻塞等待超时为0，直接返回错误
+      xReturn = pdFALSE;
+    }
+    else
+    {
+      //收到了通知
+      pxCurrentTCB->ulNotifiedValue &= ~ulBitsToClearOnExit;
+      xReturn = pdTRUE;
+    }
+
+    //重置状态为非等待通知状态
+    pxCurrentTCB->ucNotifyState = taskNOT_WAITING_NOTIFICATION;
+  }
+  taskEXIT_CRITICAL();
+}
+```
+
+Task Notifications基本就阅读完成了，简洁高效而且占用RAM少，可以实现轻量级Queue，Binary Semaphore, Semaphore和Event Groups，具有很高的效率优势，但是也要注意使用限制，只能有1个任务接收通知，发送通知的任务不能因为无法发送通知而进入阻塞状态。
