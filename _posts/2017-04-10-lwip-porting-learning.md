@@ -20,7 +20,7 @@ lwIP的源码可以到官网的Source Code页面[下载](http://git.savannah.non
 doc/  //文档
  |-contrib.txt
  |-mdns.txt
- |-mqtt_client.txt
+ |-mqtt_client.txt //mqtt支持，一种流行的IoT协议
  |-ppp.txt
  |-rwaapi.txt
  |-savannah.txt
@@ -73,10 +73,110 @@ lwIP可以移植到基于OS平台或者无OS的平台上，一般还是在OS的�
 ports/
  |-unix  //类unix系统的移植
  |-win32  //windows系统的移植
- |-old  //不再使用
+ |-old  //不再使用，有一些嵌入式系统的例子
 ```
 
-* cc.h
+#### cc.h
+
+此文件是编译器和处理器相关的头文件描述。
+
+* Data types定义
+
+u8_t，u16_t，u32_t，s8_t，s16_t，s32_t及mem_ptr_t
+
+```
+typedef unsigned char  u8_t;
+```
+
+* printf相关的数据定义
+
+U16_F, S16_F, X16_F, U32_F, S32_F, X32_F, SZT_F一般被定义成 "hu", "d", "hx", "u", "d", "x", "uz"
+
+```
+#define U16_F  "hu"
+```
+
+* 大端小端定义
+
+```
+#define BYTE_ORDER  LITTLE_ENDIAN
+或者
+#define BYTE_ORDER  BIG_ENDIAN
+```
+
+TCP/IP协议栈采用大端模式，如果处理器也支持大端模式而且使用此模式，效率是最高的；但是大部分处理器使用小端模式，这就要注意使用htons()/htonl()/ntohs()/ntohl()函数进行转换。lwIP针对这种情况提供了标准的函数，但是如果处理器或编译器有相关的优化则应该封装成平台相关的函数替换使用。如下面这样的宏定义：
+
+```
+#define LWIP_PLATFORM_BYTESWAP  1
+#define LWIP_PLATFORM_HTONS(x)  ((((u16_t)(x))>>8) | (((x)&0xFF)<<8))
+#define LWIP_PLATFORM_HTONL(x)  ((((u32_t)(x))>>24) | (((x)&0xFF0000)>>8) | (((x)&0xFF00)<<8) | (((x)&0xFF)<<24))
+```
+
+* IP协议checksums选择
+
+三种checksums算法选择：
+
+```
+1.load byte by byte, construct 16 bits word and add: not efficient for most platforms
+2.load first byte if odd address, loop processing 16 bits words, add last byte.
+3.load first byte and word if not 4 byte aligned, loop processing 32 bits words, add last word/byte.
+```
+
+定义下面的宏选择checksums：
+
+```
+#define LWIP_CHKSUM_ALGORITHM 2
+```
+
+如果是自定义checksums，则如下方式定义：
+
+```
+u16_t my_chksum(void *dataptr, u16_t len);
+#define LWIP_CHKSUM  my_chksum
+```
+
+* 内存对齐
+
+数据结构一般通过下面这种方式定义：
+
+```
+#ifdef PACK_STRUCT_USE_INCLUDES
+#  include "arch/bpstruct.h"
+#endif
+PACK_STRUCT_BEGIN
+struct <structure_name> {
+  PACK_STRUCT_FIELD(<type> <field>);
+  PACK_STRUCT_FIELD(<type> <field>);
+  <...>
+} PACK_STRUCT_STRUCT;
+PACK_STRUCT_END
+#ifdef PACK_STRUCT_USE_INCLUDES
+#  include "arch/epstruct.h"
+#endif
+```
+
+根据处理器和编译器的特点，需要定义几个宏，达到内存对齐，下面是以GCC为例的定义：
+
+```
+#define PACK_STRUCT_FIELD(x) x __attribute__((packed))
+#define PACK_STRUCT_STRUCT __attribute__((packed))
+#define PACK_STRUCT_BEGIN
+#define PACK_STRUCT_END
+```
+
+* 平台相关的诊断输出定义
+
+```
+LWIP_PLATFORM_DIAG(x)  non-fatal，只是打印message
+LWIP_PLATFORM_ASSERT(x)  fatal，打印message，然后停止执行
+```
+
+* 抢占保护
 
 
 
+#### sys_arch.c
+
+#### sys_arch.h
+
+#### others
