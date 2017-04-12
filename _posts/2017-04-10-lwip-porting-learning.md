@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "lwIP学习笔记-移植"
-categories: RTOS
+categories: TCP/IP
 tags: Embedded TCP/IP lwIP
 author: Will
 ---
@@ -84,7 +84,7 @@ ports/
 
 u8_t，u16_t，u32_t，s8_t，s16_t，s32_t及mem_ptr_t
 
-```
+```c
 typedef unsigned char  u8_t;
 ```
 
@@ -92,13 +92,13 @@ typedef unsigned char  u8_t;
 
 U16_F, S16_F, X16_F, U32_F, S32_F, X32_F, SZT_F一般被定义成 "hu", "d", "hx", "u", "d", "x", "uz"
 
-```
+```c
 #define U16_F  "hu"
 ```
 
 * 大端小端定义
 
-```
+```c
 #define BYTE_ORDER  LITTLE_ENDIAN
 或者
 #define BYTE_ORDER  BIG_ENDIAN
@@ -106,7 +106,7 @@ U16_F, S16_F, X16_F, U32_F, S32_F, X32_F, SZT_F一般被定义成 "hu", "d", "hx
 
 TCP/IP协议栈采用大端模式，如果处理器也支持大端模式而且使用此模式，效率是最高的；但是大部分处理器使用小端模式，这就要注意使用htons()/htonl()/ntohs()/ntohl()函数进行转换。lwIP针对这种情况提供了标准的函数，但是如果处理器或编译器有相关的优化则应该封装成平台相关的函数替换使用。如下面这样的宏定义：
 
-```
+```c
 #define LWIP_PLATFORM_BYTESWAP  1
 #define LWIP_PLATFORM_HTONS(x)  ((((u16_t)(x))>>8) | (((x)&0xFF)<<8))
 #define LWIP_PLATFORM_HTONL(x)  ((((u32_t)(x))>>24) | (((x)&0xFF0000)>>8) | (((x)&0xFF00)<<8) | (((x)&0xFF)<<24))
@@ -124,13 +124,13 @@ TCP/IP协议栈采用大端模式，如果处理器也支持大端模式而且�
 
 定义下面的宏选择checksums：
 
-```
+```c
 #define LWIP_CHKSUM_ALGORITHM 2
 ```
 
 如果是自定义checksums，则如下方式定义：
 
-```
+```c
 u16_t my_chksum(void *dataptr, u16_t len);
 #define LWIP_CHKSUM  my_chksum
 ```
@@ -139,7 +139,7 @@ u16_t my_chksum(void *dataptr, u16_t len);
 
 数据结构一般通过下面这种方式定义：
 
-```
+```c
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
@@ -157,7 +157,7 @@ PACK_STRUCT_END
 
 根据处理器和编译器的特点，需要定义几个宏，达到内存对齐，下面是以GCC为例的定义：
 
-```
+```c
 #define PACK_STRUCT_FIELD(x) x __attribute__((packed))
 #define PACK_STRUCT_STRUCT __attribute__((packed))
 #define PACK_STRUCT_BEGIN
@@ -166,17 +166,231 @@ PACK_STRUCT_END
 
 * 平台相关的诊断输出定义
 
-```
+```c
 LWIP_PLATFORM_DIAG(x)  non-fatal，只是打印message
 LWIP_PLATFORM_ASSERT(x)  fatal，打印message，然后停止执行
 ```
 
 * 抢占保护
 
+类似FreeRTOS里面的`taskENTER_CRITICAL()`和`taskEXIT_CRITICAL()`，lwIP源码里面使用如下面大写的宏定义，默认在src/include/lwip/sys.h里定义，lwIP推荐不要在cc.h里面定义这些宏，而是在lwipopts.h里将宏SYS_LIGHTWEIGHT_PROT=1，然后sys.h里的默认定义会生效，如下所示；然后在sys_arch.h和sys_arch.c具体实现。
 
+```c
+#define SYS_ARCH_DECL_PROTECT(lev) sys_prot_t lev
+#define SYS_ARCH_PROTECT(lev) lev = sys_arch_protect()
+#define SYS_ARCH_UNPROTECT(lev) sys_arch_unprotect(lev)
+```
 
 #### sys_arch.c
 
+此文件需要实现semaphores和mailboxes给lwIP使用。
+
+* Semaphores
+
+lwIP使用Counting Semaphores和Binary Semaphores。Semaphores的数据结构定义在sys_arch.h里面，源码并未给出具体的数据结构定义，完全交给开发者根据自己使用的RTOS自行决定，数据结构定义为sys_sem_t，而且需要实现下面这些函数
+
+```c
+sys_sem_t sys_sem_new(u8_t count);
+void sys_sem_free(sys_sem_t sem);
+void sys_sem_signal(sys_sem_t sem);
+u32_t sys_arch_sem_wait(sys_sem_t sem, u32_t timeout);
+```
+
+* Mailboxes
+
+与Semaphores类似，需要根据具体的RTOS实现数据结构sys_mbox_t，像FreeRTOS是没有Mailboxes的，但是可以使用Queue代替。需要实现下面的这些函数
+
+```c
+sys_mbox_t sys_mbox_new(int size);
+void sys_mbox_free(sys_mbox_t mbox);
+void sys_mbox_post(sys_mbox_t mbox, void *msg);
+u32_t sys_arch_mbox_fetch(sys_mbox_t mbox, void **msg, u32_t timeout);
+u32_t sys_arch_mbox_tryfetch(sys_mbox_t mbox, void **msg);
+err_t sys_mbox_trypost(sys_mbox_t mbox, void *msg);
+```
+
+* Timeouts/Threads
+
+RTOS一般都提供，也可以再做一次封装。
+
+* System
+
+实现lwIP的系统初始化函数`sys_init(void)`
+
 #### sys_arch.h
 
-#### others
+需要定义下面的数据结构，结合具体使用的RTOS进行封装即可
+
+```c
+sys_sem_t
+sys_mbox_t
+sys_thread_t
+```
+
+SYS_MBOX_NULL, SYS_SEM_NULL直接定义成NULL。还有就是之前提到过的抢占保护，sys_arch.h中声明，sys_arch.c实现。
+
+```c
+sys_prot_t sys_arch_protect(void);
+void sys_arch_unprotect(sys_prot_t pval);
+```
+
+#### memory management
+
+lwIP默认使用自己的堆管理，具体实现在mem.c/memp.c里面，需要特别注意使用。
+
+
+### Writing a device driver
+
+netif/ethernetif.c文件默认是注释掉的，这是一个很好的网卡驱动模板。需要完善和修改三个函数
+
+```c
+struct ethernetif {
+  struct eth_addr *ethaddr;
+  /* Add whatever per-interface state that is needed here. */
+  //在这里可以添加自己的私有数据结构，不是必须的
+};
+
+static void low_level_init(struct netif *netif);
+static err_t low_level_output(struct netif *netif, struct pbuf *p);
+static struct pbuf *low_level_input(struct netif *netif);
+
+static void low_level_init(struct netif *netif)
+{
+  struct ethernetif *ethernetif = netif->state;
+
+  /* set MAC hardware address length */
+  netif->hwaddr_len = ETHARP_HWADDR_LEN;
+
+  //添加网卡的mac地址
+  /* set MAC hardware address */
+  netif->hwaddr[0] = ;
+  netif->hwaddr[1] = ;
+  netif->hwaddr[2] = ;
+  netif->hwaddr[3] = ;
+  netif->hwaddr[4] = ;
+  netif->hwaddr[5] = ;
+
+  /* maximum transfer unit */
+  netif->mtu = 1500;
+
+  /* device capabilities */
+  /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
+  netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP;
+
+#if LWIP_IPV6 && LWIP_IPV6_MLD
+  /*
+   * For hardware/netifs that implement MAC filtering.
+   * All-nodes link-local is handled by default, so we must let the hardware know
+   * to allow multicast packets in.
+   * Should set mld_mac_filter previously. */
+  if (netif->mld_mac_filter != NULL) {
+    ip6_addr_t ip6_allnodes_ll;
+    ip6_addr_set_allnodes_linklocal(&ip6_allnodes_ll);
+    netif->mld_mac_filter(netif, &ip6_allnodes_ll, NETIF_ADD_MAC_FILTER);
+  }
+#endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
+
+  //其他相关的初始化
+  /* Do whatever else is needed to initialize interface. */
+}
+
+static err_t low_level_output(struct netif *netif, struct pbuf *p)
+{
+  struct ethernetif *ethernetif = netif->state;
+  struct pbuf *q;
+
+  //实现初始化transfer()
+  initiate transfer();
+
+#if ETH_PAD_SIZE
+  pbuf_header(p, -ETH_PAD_SIZE); /* drop the padding word */
+#endif
+
+  for (q = p; q != NULL; q = q->next) {
+    /* Send the data from the pbuf to the interface, one pbuf at a time. The size of the data in each pbuf is kept in the ->len variable. */
+    //实现发送data，从pbuf到网卡
+    send data from(q->payload, q->len);
+  }
+
+  //实现触发发送
+  signal that packet should be sent();
+
+  MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
+  if (((u8_t*)p->payload)[0] & 1) {
+    /* broadcast or multicast packet*/
+    MIB2_STATS_NETIF_INC(netif, ifoutnucastpkts);
+  } else {
+    /* unicast packet */
+    MIB2_STATS_NETIF_INC(netif, ifoutucastpkts);
+  }
+  /* increase ifoutdiscards or ifouterrors on error */
+
+#if ETH_PAD_SIZE
+  pbuf_header(p, ETH_PAD_SIZE); /* reclaim the padding word */
+#endif
+
+  LINK_STATS_INC(link.xmit);
+
+  return ERR_OK;
+}
+
+static struct pbuf *low_level_input(struct netif *netif)
+{
+  struct ethernetif *ethernetif = netif->state;
+  struct pbuf *p, *q;
+  u16_t len;
+
+  //获得接收数据长度，赋值给len
+  /* Obtain the size of the packet and put it into the "len" variable. */
+  len = ;
+
+#if ETH_PAD_SIZE
+  len += ETH_PAD_SIZE; /* allow room for Ethernet padding */
+#endif
+
+  /* We allocate a pbuf chain of pbufs from the pool. */
+  p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
+
+  if (p != NULL) {
+
+#if ETH_PAD_SIZE
+    pbuf_header(p, -ETH_PAD_SIZE); /* drop the padding word */
+#endif
+
+    /* We iterate over the pbuf chain until we have read the entire packet into the pbuf. */
+    for (q = p; q != NULL; q = q->next) {
+      /* Read enough bytes to fill this pbuf in the chain. The available data in the pbuf is given by the q->len variable. This does not necessarily have to be a memcpy, you can also preallocate pbufs for a DMA-enabled MAC and after receiving truncate it to the actually received size. In this case, ensure the tot_len member of the pbuf is the sum of the chained pbuf len members. */
+      //实现读入数据
+      read data into(q->payload, q->len);
+    }
+    //实现数据已经读取Ack
+    acknowledge that packet has been read();
+
+    MIB2_STATS_NETIF_ADD(netif, ifinoctets, p->tot_len);
+    if (((u8_t*)p->payload)[0] & 1) {
+      /* broadcast or multicast packet*/
+      MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
+    } else {
+      /* unicast packet*/
+      MIB2_STATS_NETIF_INC(netif, ifinucastpkts);
+    }
+#if ETH_PAD_SIZE
+    pbuf_header(p, ETH_PAD_SIZE); /* reclaim the padding word */
+#endif
+
+    LINK_STATS_INC(link.recv);
+  } else {
+    //实现丢弃数据包
+    drop packet();
+    LINK_STATS_INC(link.memerr);
+    LINK_STATS_INC(link.drop);
+    MIB2_STATS_NETIF_INC(netif, ifindiscards);
+  }
+
+  return p;
+}
+```
+
+### Porting Examples
+
+lwIP还提供了一些[移植示例](http://lwip.wikia.com/wiki/Available_device_drivers)。基于Cortex-M3平台的[示例](http://scaprile.ldir.com.ar/cms/category/os/lwip-port/)，示例采用lwIP源码版本v1.4.1，可以参考其cc.h和sys_arch.h的修改；而另一个示例LwIP_TCP_Echo_Server/LwIP_HTTP_Server_Netconn_RTOS里面有关于driver的参考示例。
