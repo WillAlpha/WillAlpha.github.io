@@ -191,4 +191,7 @@ u8_t pbuf_free(struct pbuf *p)
 
 ### memeory management
 
-通过上面的pbuf源码，可以看出lwIP有2种内存分配方式，即memp_malloc()/memp_free()和mem_malloc()/mem_free()
+通过上面的pbuf源码，可以看出lwIP有2种内存分配方式，即memp_malloc()/memp_free()和mem_malloc()/mem_free()。mem_malloc()/mem_free()与我们常用的堆分配释放类似，lwIP里面主要应对不定长的Tx时的pbuf，可以使用标准c库里的堆管理，也可以使用静态内存池，也可以使用自定义的堆管理，与前面FreeRTOS的heap_4类似的堆管理，简洁高效，尽量避免内存碎片。主要看一下memp_malloc()/memp_free()，用来应对定长的pbuf，定长的内存管理更加的简洁，效率更高，不会产生内存碎片，但是可能存在浪费空间的问题(PBUF_POOL)，总要有所取舍。
+
+
+
