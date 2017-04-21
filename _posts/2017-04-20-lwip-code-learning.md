@@ -118,7 +118,7 @@ struct pbuf *pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
 
     ...
   }
-  
+
   p->ref = 1;
   p->flags = 0;
 
@@ -129,15 +129,21 @@ struct pbuf *pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
 通过pbuf_alloc()可见pbuf分四种类型：PBUF_POOL，PBUF_RAM，PBUF_REF，PBUF_ROM。
 
 * PBUF_POOL
+
 ![lwIP_pbuf_pool_model]({{ "/images/lwip_pbuf_pool_model.png" | prepend:site.baseurl }})
+
 PBUF_POOL从内存pool中分配，固定长度分配，分配的每一个pbuf包都是连续内存，如果包长超过一个pbuf固定分配长度，则拆分成多个pbuf包，然后形成pbuf chain，一般用于Rx，即device drivers接收网络数据包
 
 * PBUF_RAM
+
 ![lwIP_pbuf_ram_model]({{ "/images/lwip_pbuf_ram_model.png" | prepend:site.baseurl }})
+
 PBUF_RAM从内存堆中分配，4种类型中唯一分配方式不同的一个，非固定长度，分配在连续内存上，一般用于Tx
 
 * PBUF_REF & PBUF_ROM
+
 ![lwIP_pbuf_ref_rom_model]({{ "/images/lwip_pbuf_ref_rom_model.png" | prepend:site.baseurl }})
+
 PBUF_REF和PBUF_ROM分配相同，在内存pool中分配，只分配pbuf数据结构大小，payload为NULL，将来指向data内存，pbuf数据结构和data分离，常用于应用
 
 接着再看一下pbuf_free()
@@ -176,7 +182,7 @@ u8_t pbuf_free(struct pbuf *p)
       p = NULL; //此pbuf还在被其他pbuf引用，不能free，退出
     }
   }
-  
+
   return count;
 }
 ```
