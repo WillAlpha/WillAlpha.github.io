@@ -191,4 +191,155 @@ u8_t pbuf_free(struct pbuf *p)
 
 ### memeory management
 
-通过上面的pbuf源码，可以看出lwIP有2种内存分配方式，即memp_malloc()/memp_free()和mem_malloc()/mem_free()
+通过上面的pbuf源码，可以看出lwIP有2种内存分配方式，即memp_malloc()/memp_free()和mem_malloc()/mem_free()。mem_malloc()/mem_free()与我们常用的堆分配释放类似，lwIP里面主要应对不定长的Tx时的pbuf，可以使用标准c库里的堆管理，也可以使用静态内存池，也可以使用自定义的堆管理，与前面FreeRTOS的heap_4类似的堆管理，简洁高效，尽量避免内存碎片。主要看一下memp_malloc()/memp_free()，用来应对定长的pbuf，定长的内存管理更加的简洁，效率更高，不会产生内存碎片，但是可能存在浪费空间的问题(PBUF_POOL)，总要有所取舍，特别在接收时使用这种内存分配策略。
+
+```c
+#define LWIP_MEMPOOL_DECLARE(name,num,size,desc) \
+  LWIP_DECLARE_MEMORY_ALIGNED(memp_memory_ ## name ## _base, ((num) * (MEMP_SIZE + MEMP_ALIGN_SIZE(size)))); \
+  \ LWIP_MEMPOOL_DECLARE_STATS_INSTANCE(memp_stats_ ## name) \
+  \ static struct memp *memp_tab_ ## name; \
+  \ const struct memp_desc memp_ ## name = { \
+    DECLARE_LWIP_MEMPOOL_DESC(desc) \
+    LWIP_MEMPOOL_DECLARE_STATS_REFERENCE(memp_stats_ ## name) \
+    LWIP_MEM_ALIGN_SIZE(size), \
+    (num), \
+    memp_memory_ ## name ## _base, \
+    &memp_tab_ ## name \
+  };
+
+#define LWIP_MEMPOOL(name,num,size,desc) LWIP_MEMPOOL_DECLARE(name,num,size,desc)
+#include "lwip/priv/memp_std.h"
+
+const struct memp_desc* const memp_pools[MEMP_MAX] = {
+#define LWIP_MEMPOOL(name,num,size,desc) &memp_ ## name,
+#include "lwip/priv/memp_std.h"
+};
+```
+
+上面的源码是memp相关的定义，摘录自memp.c/memp.h，另外再结合memp_std.h文件就可以明白作者的代码原理，编译阶段预处理将宏定义展开后，还原出c语言源码，而增删改查则通过头文件memp_std.h就可以完成，非常简洁的源码设计，值得学习！
+
+```c
+...
+
+#if LWIP_UDP //通过宏LWIP_UDP控制是否定义TCP相关的静态内存pool
+LWIP_MEMPOOL(UDP_PCB, MEMP_NUM_UDP_PCB, sizeof(struct udp_pcb), "UDP_PCB")
+#endif
+
+#if LWIP_TCP //通过宏LWIP_TCP控制是否定义TCP相关的静态内存pool
+LWIP_MEMPOOL(TCP_PCB, MEMP_NUM_TCP_PCB, sizeof(struct tcp_pcb), "TCP_PCB")
+LWIP_MEMPOOL(TCP_PCB_LISTEN, MEMP_NUM_TCP_PCB_LISTEN, sizeof(struct tcp_pcb_listen), "TCP_PCB_LISTEN")
+LWIP_MEMPOOL(TCP_SEG, MEMP_NUM_TCP_SEG, sizeof(struct tcp_seg), "TCP_SEG")
+#endif
+
+...
+
+//PBUF_REF/ROM/POOL相关的静态内存pool定义
+LWIP_PBUF_MEMPOOL(PBUF, MEMP_NUM_PBUF, 0, "PBUF_REF/ROM")
+LWIP_PBUF_MEMPOOL(PBUF_POOL, PBUF_POOL_SIZE, PBUF_POOL_BUFSIZE, "PBUF_POOL")
+
+...
+
+#if MEMP_USE_CUSTOM_POOLS //如果启用自定义静态内存pool来替换mem.c里面的内存管理，还需定义头文件lwippools.h
+#include "lwippools.h"
+#endif
+
+//每次#include memp_std.h，根据源码的#define，将本次的#uddef
+#undef LWIP_MEMPOOL
+#undef LWIP_MALLOC_MEMPOOL
+#undef LWIP_MALLOC_MEMPOOL_START
+#undef LWIP_MALLOC_MEMPOOL_END
+#undef LWIP_PBUF_MEMPOOL
+```
+
+通过memp_std.h里的宏定义，在编译时确定静态内存pool大小，整片静态内存，分割成定长的内存块，再看pbuf.c中的memp_malloc(MEMP_PBUF_POOL)和memp_malloc(MEMP_PBUF)，其中MEMP_PBUF_POOL/MEMP_PBUF是enum memp_t定义的枚举类型(源码如下所示)，编译阶段展开，通过这个枚举类型在相应的连续整片的静态内存pool中分配固定长度的内存块，这些内存块形成链表的结构，定长的内存块链表在分配释放上是非常快的，而且不产生内存碎片，只是有时候有可能有些浪费内存，但是在此更倾向于效率。
+
+```c
+#define LWIP_MEMPOOL(name,num,size,desc)
+#include "lwip/priv/memp_std.h"
+
+typedef enum {
+#define LWIP_MEMPOOL(name,num,size,desc)  MEMP_##name,
+#include "lwip/priv/memp_std.h"
+  MEMP_MAX
+} memp_t;
+```
+
+再看几个宏定义：
+
+```c
+#define MEMP_MEM_MALLOC 0 //采用memp_malloc/memp_free，如果此宏定义定义为1，则采用mem_malloc/mem_free
+
+#define MEM_USE_POOLS 0 //采用mem_malloc/mem_free自己的内存管理方式，如果定义为1，则采用静态内存pool这种类型的方式，此时还需要定义另一个宏和头文件
+
+#define MEMP_USE_CUSTOM_POOLS 0 //如上所示，如果mem_malloc/mem_free采用静态内存pool的方式则需要将此宏定义为1，而且通过memp_std.h头文件可知，还需定义头文件lwippools.h，定义静态内存pool
+```
+
+## netif
+
+lwIP使用数据结构netif来描述一个网络接口
+
+```c
+struct netif {
+  struct netif *next; //指向下一个netif
+
+#if LWIP_IPV4
+  ip_addr_t ip_addr; //ipv4的IP地址，子网掩码，网关设置
+  ip_addr_t netmask;
+  ip_addr_t gw;
+#endif
+  ...
+  netif_input_fn input; //接收函数，网卡驱动调用，送给tcp/ip stack
+#if LWIP_IPV4
+  netif_output_fn output; //发送函数，IP层要发送数据调用
+#endif
+  netif_linkoutput_fn linkoutput; //ethernet_output()发送调用，arp调用
+  ...
+  void *state; //指向网卡状态，可以由网卡驱动修改，可由开发者自定义的ethernetif
+#ifdef netif_get_client_data
+  void* client_data[LWIP_NETIF_CLIENT_DATA_INDEX_MAX + LWIP_NUM_NETIF_CLIENT_DATA];
+#endif
+  ...
+  u16_t mtu; //maximum transfer unit (in bytes)
+  u8_t hwaddr_len; //mac地址长度
+  u8_t hwaddr[NETIF_MAX_HWADDR_LEN]; //mac地址
+  u8_t flags;
+  char name[2]; //网络接口类型描述
+  u8_t num; //网络接口个数
+  ...
+#if LWIP_IPV4 && LWIP_IGMP
+  netif_igmp_mac_filter_fn igmp_mac_filter;
+#endif
+  ...
+#if ENABLE_LOOPBACK
+  struct pbuf *loop_first;
+  struct pbuf *loop_last;
+#if LWIP_LOOPBACK_MAX_PBUFS
+  u16_t loop_cnt_current;
+#endif
+#endif
+};
+```
+
+网卡驱动初始化时用到此数据结构，参看一下测试程序的初始化就更直观了test\fuzz\fuzz.c，但是还不是具体的设备，只是一个测试程序，参考一个具体的例子
+
+```c
+  ...
+  struct netif net_test; //网络接口定义
+  ip4_addr_t addr;
+  ip4_addr_t netmask;
+  ip4_addr_t gw;
+  u8_t pktbuf[2000];
+  size_t len;
+
+  lwip_init(); //lwip初始化
+
+  IP4_ADDR(&addr, 172, 30, 115, 84);
+  IP4_ADDR(&netmask, 255, 255, 255, 0);
+  IP4_ADDR(&gw, 172, 30, 115, 1);
+
+  netif_add(&net_test, &addr, &netmask, &gw, &net_test, testif_init, ethernet_input); //关注初始化函数，input函数
+  netif_set_up(&net_test);
+  ...
+```
+
+网卡的初始化的驱动文件ethernetif.c是lwIP提供的一个网卡驱动模板，err_t ethernetif_init(struct netif *netif)，更底层的初始化函数static void low_level_init(struct netif *netif)，以及相应的底层input/output
